@@ -161,7 +161,7 @@ _DynamicDoCompileOptions = record(
     enable_profiling = bool,
     external_tool_paths = list[RunInfo],
     ghc_wrapper = RunInfo,
-    haskell_toolchain = Provider, #HaskellToolchainInfo,
+    haskell_toolchain = Provider,  #HaskellToolchainInfo,
     label = Label,
     link_style = LinkStyle,
     link_args = ArgLike,
@@ -292,7 +292,7 @@ UnitParams = record(
     enable_haddock = field(bool),
     external_tool_paths = field(list[RunInfo]),
     artifact_suffix = field(str),
-    haskell_toolchain = field(Provider), #field(HaskellToolchainInfo),
+    haskell_toolchain = field(Provider),  #field(HaskellToolchainInfo),
     compiler_flags = field(list[str | ResolvedStringWithMacros]),
 )
 
@@ -401,7 +401,6 @@ def _dynamic_target_metadata_impl(
         output: OutputArtifact,
         arg: MetadataParams,
         pkg_deps: None | ResolvedDynamicValue) -> list[Provider]:
-
     validate_outputs = []
     if arg.validate_src:
         for source in arg.sources:
@@ -883,43 +882,27 @@ def _common_compile_module_args(
         actions: AnalysisActions,
         *,
         arg: _DynamicDoCompileOptions,
-        compiler_flags: list[ArgLike],
-        ghc_rts_flags: list[ArgLike],
         incremental: bool,
-        ghc_wrapper: RunInfo,
-        haskell_toolchain: HaskellToolchainInfo,
-        pkg_deps: ResolvedDynamicValue | None,
-        enable_haddock: bool,
-        enable_profiling: bool,
-        link_style: LinkStyle,
-        main: None | str,
-        label: Label,
-        deps: list[Dependency],
-        external_tool_paths: list[RunInfo],
-        sources: list[Artifact],
-        direct_deps_info: list[HaskellLibraryInfoTSet],
-        allow_worker: bool,
-        toolchain_deps_by_name: dict[str, None],
         direct_deps_by_name: dict[str, _DirectDep],
-        pkgname: str) -> CommonCompileModuleArgs:
-    use_worker = allow_worker and haskell_toolchain.use_worker
-    worker_make = use_worker and haskell_toolchain.worker_make
+        pkg_deps: ResolvedDynamicValue | None) -> CommonCompileModuleArgs:
+    use_worker = arg.allow_worker and arg.haskell_toolchain.use_worker
+    worker_make = use_worker and arg.haskell_toolchain.worker_make
 
     unit_params = UnitParams(
-        name = pkgname,
-        link_style = link_style,
-        enable_profiling = enable_profiling,
-        enable_haddock = enable_haddock,
-        main = main,
-        external_tool_paths = external_tool_paths,
-        artifact_suffix = get_artifact_suffix(link_style, enable_profiling),
-        haskell_toolchain = haskell_toolchain,
-        compiler_flags = compiler_flags,
+        name = arg.pkgname,
+        link_style = arg.link_style,
+        enable_profiling = arg.enable_profiling,
+        enable_haddock = arg.enable_haddock,
+        main = arg.main,
+        external_tool_paths = arg.external_tool_paths,
+        artifact_suffix = get_artifact_suffix(arg.link_style, arg.enable_profiling),
+        haskell_toolchain = arg.haskell_toolchain,
+        compiler_flags = arg.compiler_flags,
     )
 
     non_haskell_sources = [
         src
-        for (path, src) in srcs_to_pairs(sources)
+        for (path, src) in srcs_to_pairs(arg.sources)
         if not is_haskell_src(path) and not is_haskell_boot(path)
     ]
 
@@ -934,18 +917,18 @@ def _common_compile_module_args(
     oneshot_wrapper_args = unit_buck2_args(actions, unit_params)
 
     # These arguments are not intended for GHC, but for either `ghc_wrapper` or the worker.
-    command = _common_compile_wrapper_args(ghc_wrapper, haskell_toolchain, pkgname, use_worker)
+    command = _common_compile_wrapper_args(arg.ghc_wrapper, arg.haskell_toolchain, arg.pkgname, use_worker)
 
     if not worker_make:
         # Some rules pass in RTS (e.g. `+RTS ... -RTS`) options for GHC, which can't
         # be parsed when inside an argsfile.
-        add_rts_flags(oneshot_wrapper_args, haskell_toolchain.ghc_rts_flags)
-        add_rts_flags(oneshot_wrapper_args, ghc_rts_flags)
+        add_rts_flags(oneshot_wrapper_args, arg.haskell_toolchain.ghc_rts_flags)
+        add_rts_flags(oneshot_wrapper_args, arg.ghc_rts_flags)
 
         oneshot_args_for_file.add("-c")
 
     # Add args from preprocess-able inputs.
-    inherited_pre = cxx_inherited_preprocessor_infos(deps)
+    inherited_pre = cxx_inherited_preprocessor_infos(arg.deps)
     pre = cxx_merge_cpreprocessors_actions(actions, [], inherited_pre)
     pre_args = pre.set.project_as_args("args")
     args_for_file.add(cmd_args(pre_args, format = "-optP={}"))
@@ -956,16 +939,16 @@ def _common_compile_module_args(
         # Add -package-db and -package/-expose-package flags for each Haskell
         # library dependency.
 
-        libs = actions.tset(HaskellLibraryInfoTSet, children = direct_deps_info)
+        libs = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
 
         direct_toolchain_libs = [
             dep[HaskellToolchainLibrary].name
-            for dep in deps
+            for dep in arg.deps
             if HaskellToolchainLibrary in dep
         ]
         toolchain_libs = direct_toolchain_libs + libs.reduce("packages")
 
-        if haskell_toolchain.packages:
+        if arg.haskell_toolchain.packages:
             package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
         else:
             package_db = []
@@ -992,11 +975,11 @@ def _common_compile_module_args(
 
         package_env_file = make_package_env(
             actions,
-            haskell_toolchain,
-            label,
-            link_style,
-            enable_profiling,
-            allow_worker,
+            arg.haskell_toolchain,
+            arg.label,
+            arg.link_style,
+            arg.enable_profiling,
+            arg.allow_worker,
             packagedb_args,
         )
         package_env_args = cmd_args(
@@ -1009,14 +992,14 @@ def _common_compile_module_args(
     target_deps_args = cmd_args()
 
     if not worker_make:
-        for pkg in toolchain_deps_by_name:
+        for pkg in arg.toolchain_deps_by_name:
             target_deps_args.add(cmd_args(pkg, prepend = "-package"))
 
         for pkg in direct_deps_by_name:
             target_deps_args.add(cmd_args(pkg, prepend = "-package"))
 
     return CommonCompileModuleArgs(
-        pkgname = pkgname,
+        pkgname = arg.pkgname,
         command = command,
         oneshot_args_for_file = oneshot_args_for_file,
         oneshot_wrapper_args = oneshot_wrapper_args,
@@ -1646,25 +1629,9 @@ def _dynamic_do_compile_impl(
     common_args = _common_compile_module_args(
         actions,
         arg = arg,
-        compiler_flags = arg.compiler_flags,
-        ghc_rts_flags = arg.ghc_rts_flags,
         incremental = incremental,
-        deps = arg.deps,
-        external_tool_paths = arg.external_tool_paths,
-        ghc_wrapper = arg.ghc_wrapper,
-        haskell_toolchain = arg.haskell_toolchain,
-        label = arg.label,
-        main = arg.main,
-        pkg_deps = pkg_deps,
-        sources = arg.sources,
-        enable_haddock = arg.enable_haddock,
-        enable_profiling = arg.enable_profiling,
-        link_style = arg.link_style,
-        direct_deps_info = arg.direct_deps_info,
-        allow_worker = arg.allow_worker,
-        toolchain_deps_by_name = arg.toolchain_deps_by_name,
         direct_deps_by_name = direct_deps_by_name,
-        pkgname = arg.pkgname,
+        pkg_deps = pkg_deps,
     )
 
     # See `./tools/generate_target_metadata.py` for schema information.
