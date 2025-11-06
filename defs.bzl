@@ -1,0 +1,384 @@
+load("@prelude//cxx:link_groups_types.bzl", "LINK_GROUP_MAP_ATTR")
+load("@prelude//decls:common.bzl", "LinkableDepType", "buck")
+load("@prelude//decls:native_common.bzl", "native_common")
+load("@prelude//decls/toolchains_common.bzl", "toolchains_common")
+load("@prelude//linking:types.bzl", "Linkage")
+load(
+    ":haskell.bzl",
+    "haskell_binary_impl",
+    "haskell_library_impl",
+    "haskell_link_group_impl",
+    "haskell_prebuilt_library_impl",
+    "haskell_toolchain_library_impl",
+)
+load(":haskell_ghci.bzl", "haskell_ghci_impl")
+load(":haskell_haddock.bzl", "haskell_haddock_impl")
+load(":haskell_ide.bzl", "haskell_ide_impl")
+load(":library_info.bzl", "HaskellLibraryProvider")
+load(":toolchain.bzl","haskell_toolchain")
+
+def _srcs_arg():
+    return {
+        "srcs": attrs.named_set(attrs.source(), sorted = True, default = [], doc = """
+    A list of Haskell sources to be built by this rule. The dictionary option is deprecated.
+"""),
+    }
+
+def _deps_arg():
+    return {
+        "deps": attrs.list(attrs.dep(), default = [], doc = """
+    Either `haskell_library()` or `prebuilt_haskell_library()` rules
+     from which this rules sources import modules or native linkable rules exporting symbols
+     this rules sources call into.
+"""),
+        "srcs_deps": attrs.dict(attrs.source(), attrs.list(attrs.source()), default = {}, doc = """
+    Allows to declare dependencies for sources manually, additionally to the dependencies automatically detected.
+        """),
+    }
+
+def _compiler_flags_arg():
+    return {
+        "compiler_flags": attrs.list(attrs.arg(), default = [], doc = """
+    Flags to pass to the Haskell compiler when compiling this rule's sources.
+"""),
+    }
+
+def _ghc_rts_flags_arg():
+    return {
+        "ghc_rts_flags": attrs.list(attrs.string(), default = [], doc = """
+    RTS options passed to GHC, changing the behavior of the compiler process, not the resulting binaries like
+    `-with-rtsopts` would.
+"""),
+    }
+
+def _exported_linker_flags_arg():
+    return {
+        "exported_linker_flags": attrs.list(attrs.string(), default = [], doc = """
+    Linker flags used by dependent rules when linking with this library.
+"""),
+    }
+
+def _scripts_arg():
+    return {
+        "_generate_target_metadata": attrs.dep(
+            providers = [RunInfo],
+            default = "@buck2-haskell//tools:generate_target_metadata",
+        ),
+        "_ghc_wrapper": attrs.dep(
+            providers = [RunInfo],
+            default = "@buck2-haskell//tools:ghc_wrapper",
+        ),
+        "_ghc_pkg_registerer": attrs.dep(
+            providers = [RunInfo],
+            default = "@buck2-haskell//tools:ghc_pkg_registerer",
+        ),
+        "_worker": attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None),
+    }
+
+def _external_tools_arg():
+    return {
+        "external_tools": attrs.list(attrs.dep(providers = [RunInfo]), default = [], doc = """
+    External executables called from Haskell compiler during preprocessing or compilation.
+"""),
+    }
+
+def _srcs_envs_arg():
+    return {
+        "srcs_envs": attrs.dict(attrs.source(), attrs.dict(attrs.string(), attrs.arg()), default = {}, doc = """
+    Individual run-time env for each source compilation.
+"""),
+    }
+
+def _module_prefix_arg():
+    return {
+        "module_prefix": attrs.option(attrs.string(), default = None, doc = """
+    Module prefix if needed
+"""),
+    }
+
+def _strip_prefix_arg():
+    return {
+        "strip_prefix": attrs.list(attrs.string(), default = [], doc = """
+    Strip prefix such as src, lib, app or test
+"""),
+    }
+
+def _extra_libraries_arg():
+    return {
+        "extra_libraries": attrs.list(attrs.dep(), default = [], doc = """
+    Non-Haskell deps (C/C++ libraries)
+"""),
+    }
+
+def _incremental_arg():
+    return {
+        "incremental": attrs.bool(default = True, doc = """
+    Use module-level incremental build
+"""),
+    }
+
+haskell_common = struct(
+    srcs_arg = _srcs_arg,
+    deps_arg = _deps_arg,
+    compiler_flags_arg = _compiler_flags_arg,
+    ghc_rts_flags_arg = _ghc_rts_flags_arg,
+    exported_linker_flags_arg = _exported_linker_flags_arg,
+    scripts_arg = _scripts_arg,
+    external_tools_arg = _external_tools_arg,
+    srcs_envs_arg = _srcs_envs_arg,
+    module_prefix_arg = _module_prefix_arg,
+    strip_prefix_arg = _strip_prefix_arg,
+    extra_libraries_arg = _extra_libraries_arg,
+    incremental_arg = _incremental_arg,
+)
+
+haskell_binary = rule(
+    impl = haskell_binary_impl,
+    attrs = (
+        # @unsorted-dict-items
+        {
+            "main": attrs.option(attrs.string(), default = None, doc = """
+                The main module serving as the entry point into the binary. If not specified,
+                 the compiler default is used.
+            """),
+        } |
+        native_common.link_group_deps() |
+        native_common.link_group_public_deps_label() |
+        native_common.link_style() |
+        haskell_common.srcs_arg() |
+        haskell_common.external_tools_arg() |
+        haskell_common.srcs_envs_arg () |
+        haskell_common.extra_libraries_arg () |
+        haskell_common.compiler_flags_arg() |
+        haskell_common.ghc_rts_flags_arg() |
+        haskell_common.deps_arg() |
+        haskell_common.scripts_arg() |
+        haskell_common.module_prefix_arg() |
+        haskell_common.strip_prefix_arg() |
+        haskell_common.incremental_arg() |
+        buck.platform_deps_arg() |
+        {
+            "contacts": attrs.list(attrs.string(), default = []),
+            "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
+            "deps_query": attrs.option(attrs.query(), default = None),
+            "enable_profiling": attrs.bool(default = False),
+            "ghci_platform_preload_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
+            "ghci_preload_deps": attrs.set(attrs.dep(), sorted = True, default = []),
+            "labels": attrs.list(attrs.string(), default = []),
+            "licenses": attrs.list(attrs.source(), default = []),
+            "link_deps_query_whole": attrs.bool(default = False),
+            "linker_flags": attrs.list(attrs.arg(), default = []),
+            "platform": attrs.option(attrs.string(), default = None),
+            "platform_linker_flags": attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.arg())), default = []),
+            "allow_worker": attrs.bool(default = True),
+
+            # extra needed (from rules_impl.bzl)
+            "auto_link_groups": attrs.bool(default = False),
+            "link_group_map": LINK_GROUP_MAP_ATTR,
+            "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
+            "_cxx_toolchain": toolchains_common.cxx(),
+            "_haskell_toolchain": haskell_toolchain(),
+        }
+    ),
+)
+
+haskell_ghci = rule(
+    impl = haskell_ghci_impl,
+    attrs = (
+        # @unsorted-dict-items
+        {
+            "compiler_flags": attrs.list(attrs.string(), default = []),
+            "contacts": attrs.list(attrs.string(), default = []),
+            "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
+            "deps": attrs.list(attrs.dep(), default = []),
+            "deps_query": attrs.option(attrs.query(), default = None),
+            "enable_profiling": attrs.bool(default = False),
+            "extra_script_templates": attrs.list(attrs.source(), default = []),
+            "ghci_bin_dep": attrs.option(attrs.dep(), default = None),
+            "ghci_init": attrs.option(attrs.source(), default = None),
+            "labels": attrs.list(attrs.string(), default = []),
+            "licenses": attrs.list(attrs.source(), default = []),
+            "linker_flags": attrs.list(attrs.arg(), default = []),
+            "platform": attrs.option(attrs.string(), default = None),
+            "platform_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
+            "platform_preload_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
+            "preload_deps": attrs.set(attrs.dep(), sorted = True, default = []),
+            "srcs": attrs.named_set(attrs.source(), sorted = True, default = []),
+
+            # extra needed (from rules_impl.bzl)
+            "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
+            "_cxx_toolchain": toolchains_common.cxx(),
+            "_haskell_toolchain": haskell_toolchain(),
+        }
+    ),
+)
+
+haskell_haddock = rule(
+    impl = haskell_haddock_impl,
+    attrs = (
+        # @unsorted-dict-items
+        {
+            "contacts": attrs.list(attrs.string(), default = []),
+            "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
+            "deps": attrs.list(attrs.dep(), default = []),
+            "deps_query": attrs.option(attrs.query(), default = None),
+            "haddock_flags": attrs.list(attrs.arg(), default = []),
+            "labels": attrs.list(attrs.string(), default = []),
+            "licenses": attrs.list(attrs.source(), default = []),
+            "platform": attrs.option(attrs.string(), default = None),
+            "platform_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
+
+            # extra needed (from rules_impl.bzl)
+            "_cxx_toolchain": toolchains_common.cxx(),
+            "_haskell_toolchain": haskell_toolchain(),
+        }
+    ),
+)
+
+haskell_ide = rule(
+    impl = haskell_ide_impl,
+    attrs = (
+        # @unsorted-dict-items
+        {
+            "compiler_flags": attrs.list(attrs.string(), default = []),
+            "contacts": attrs.list(attrs.string(), default = []),
+            "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
+            "deps": attrs.list(attrs.dep(), default = []),
+            "deps_query": attrs.option(attrs.query(), default = None),
+            "extra_script_templates": attrs.list(attrs.source(), default = []),
+            "labels": attrs.list(attrs.string(), default = []),
+            "licenses": attrs.list(attrs.source(), default = []),
+            "link_style": attrs.enum(LinkableDepType),
+            "linker_flags": attrs.list(attrs.arg(), default = []),
+            "platform": attrs.option(attrs.string(), default = None),
+            "platform_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
+            "srcs": attrs.named_set(attrs.source(), sorted = True, default = []),
+
+            # extra needed (from rules_impl.bzl)
+            "include_projects": attrs.list(attrs.dep(), default = []),
+            "_haskell_toolchain": haskell_toolchain(),
+        }
+    ),
+)
+
+haskell_library = rule(
+    impl = haskell_library_impl,
+    attrs = (
+        # @unsorted-dict-items
+        haskell_common.srcs_arg() |
+        haskell_common.external_tools_arg() |
+        haskell_common.srcs_envs_arg() |
+        haskell_common.extra_libraries_arg() |
+        haskell_common.compiler_flags_arg() |
+        haskell_common.ghc_rts_flags_arg() |
+        haskell_common.deps_arg() |
+        haskell_common.scripts_arg() |
+        haskell_common.module_prefix_arg() |
+        haskell_common.strip_prefix_arg() |
+        haskell_common.incremental_arg() |
+        buck.platform_deps_arg() |
+        native_common.link_whole(link_whole_type = attrs.bool(default = False)) |
+        native_common.preferred_linkage(preferred_linkage_type = attrs.enum(Linkage.values())) |
+        {
+            "contacts": attrs.list(attrs.string(), default = []),
+            "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
+            "enable_profiling": attrs.bool(default = False),
+            "ghci_platform_preload_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
+            "ghci_preload_deps": attrs.set(attrs.dep(), sorted = True, default = []),
+            "haddock_flags": attrs.list(attrs.arg(), default = []),
+            "labels": attrs.list(attrs.string(), default = []),
+            "licenses": attrs.list(attrs.source(), default = []),
+            "linker_flags": attrs.list(attrs.arg(), default = []),
+            "platform": attrs.option(attrs.string(), default = None),
+            "platform_linker_flags": attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.arg())), default = []),
+            "use_same_package_name": attrs.bool(default = False),
+            "allow_worker": attrs.bool(default = True),
+
+            # extra needed (from rules_impl.bzl)
+            "preferred_linkage": attrs.enum(Linkage.values(), default = "any"),
+            "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
+            "_cxx_toolchain": toolchains_common.cxx(),
+            "_haskell_toolchain": haskell_toolchain(),
+        }
+    ),
+)
+
+haskell_link_group = rule(
+    impl = haskell_link_group_impl,
+    attrs = {
+        "deps": attrs.list(attrs.dep(), default = [], doc = """
+    haskell_library dependencies which will be grouped by this target.
+"""),
+        "_ghc_pkg_registerer": attrs.dep(
+            providers = [RunInfo],
+            default = "@buck2-haskell//tools:ghc_pkg_registerer",
+        ),
+
+        # extra needed (from rules_impl.bzl)
+        "_cxx_toolchain": toolchains_common.cxx(),
+        "_haskell_toolchain": haskell_toolchain(),
+    },
+)
+
+haskell_toolchain_library = rule(
+    impl = haskell_toolchain_library_impl,
+    attrs = {
+        # extra needed (from rules_impl.bzl)
+        "_haskell_toolchain": haskell_toolchain(),
+        "_generate_toolchain_lib_metadata": attrs.dep(
+            providers = [RunInfo],
+            default = "@buck2-haskell//tools:generate_toolchain_lib_metadata"
+        )
+    },
+)
+
+haskell_prebuilt_library = rule(
+    impl = haskell_prebuilt_library_impl,
+    attrs = (
+        # @unsorted-dict-items
+        {
+            "deps": attrs.list(attrs.dep(), default = [], doc = """
+                Other `prebuilt_haskell_library()` rules from which this library
+                 imports modules.
+            """),
+            "static_libs": attrs.list(attrs.source(), default = [], doc = """
+                The libraries to use when building a statically linked top-level target.
+            """),
+            "shared_libs": attrs.dict(key = attrs.string(), value = attrs.source(), sorted = False, default = {}, doc = """
+                A map of shared library names to shared library paths to use when building a
+                 dynamically linked top-level target.
+            """),
+            "exported_compiler_flags": attrs.list(attrs.string(), default = [], doc = """
+                Compiler flags used by dependent rules when compiling with this library.
+            """),
+        } |
+        haskell_common.exported_linker_flags_arg() |
+        {
+            "exported_post_linker_flags": attrs.list(attrs.arg(anon_target_compatible = True), default = []),
+            "contacts": attrs.list(attrs.string(), default = []),
+            "cxx_header_dirs": attrs.list(attrs.source(), default = []),
+            "db": attrs.source(),
+            "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
+            "enable_profiling": attrs.bool(default = False),
+            "id": attrs.string(default = ""),
+            "import_dirs": attrs.list(attrs.source(), default = []),
+            "labels": attrs.list(attrs.string(), default = []),
+            "licenses": attrs.list(attrs.source(), default = []),
+            "pic_profiled_static_libs": attrs.list(attrs.source(), default = []),
+            "pic_static_libs": attrs.list(attrs.source(), default = []),
+            "profiled_static_libs": attrs.list(attrs.source(), default = []),
+            "version": attrs.string(default = ""),
+        }
+    ),
+)
+
+haskell_rules = struct(
+    haskell_binary = haskell_binary,
+    haskell_ghci = haskell_ghci,
+    haskell_haddock = haskell_haddock,
+    haskell_ide = haskell_ide,
+    haskell_library = haskell_library,
+    haskell_link_group = haskell_link_group,
+    haskell_prebuilt_library = haskell_prebuilt_library,
+    haskell_toolchain_library = haskell_toolchain_library,
+)

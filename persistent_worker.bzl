@@ -1,5 +1,5 @@
 load(
-    "@prelude//haskell:toolchain.bzl",
+    ":toolchain.bzl",
     "HaskellToolchainInfo",
 )
 

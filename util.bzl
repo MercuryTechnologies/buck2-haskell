@@ -11,19 +11,8 @@ load(
     "CxxPlatformInfo",
 )
 load(
-    "@prelude//haskell:toolchain.bzl",
+    ":toolchain.bzl",
     "HaskellToolchainLibrary",
-)
-load(
-    "@prelude//haskell:library_info.bzl",
-    "HaskellLibraryInfo",
-    "HaskellLibraryProvider",
-)
-load(
-    "@prelude//haskell:link_info.bzl",
-    "HaskellLinkGroupInfo",
-    "HaskellLinkInfo",
-    "HaskellProfLinkInfo",
 )
 load(
     "@prelude//linking:link_info.bzl",
@@ -36,6 +25,17 @@ load(
 )
 load("@prelude//utils:platform_flavors_util.bzl", "by_platform")
 load("@prelude//utils:utils.bzl", "flatten")
+load(
+    ":library_info.bzl",
+    "HaskellLibraryInfo",
+    "HaskellLibraryProvider",
+)
+load(
+    ":link_info.bzl",
+    "HaskellLinkGroupInfo",
+    "HaskellLinkInfo",
+    "HaskellProfLinkInfo",
+)
 
 HASKELL_EXTENSIONS = [
     ".hs",

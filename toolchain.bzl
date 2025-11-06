@@ -89,3 +89,9 @@ HaskellPackageDbTSet = transitive_set(
 DynamicHaskellPackageDbInfo = provider(fields = {
     "packages": dict[str, HaskellPackageDbTSet],
 })
+
+def _toolchain(lang: str, providers: list[typing.Any]) -> Attr:
+    return attrs.toolchain_dep(default = "toolchains//:" + lang, providers = providers)
+
+def haskell_toolchain():
+    return _toolchain("haskell", [HaskellToolchainInfo, HaskellPlatformInfo])
