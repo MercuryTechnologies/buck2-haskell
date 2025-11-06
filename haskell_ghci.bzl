@@ -16,27 +16,6 @@ load(
     "@prelude//cxx:link_types.bzl",
     "link_options",
 )
-load(
-    "@prelude//haskell:compile.bzl",
-    "PackagesInfo",
-    "get_packages_info",
-)
-load(
-    "@prelude//haskell:library_info.bzl",
-    "HaskellLibraryInfo",
-    "HaskellLibraryProvider",
-)
-load(
-    "@prelude//haskell:toolchain.bzl",
-    "HaskellToolchainInfo",
-)
-load(
-    "@prelude//haskell:util.bzl",
-    "attr_deps",
-    "attr_deps_haskell_lib_infos",
-    "attr_deps_haskell_link_infos",
-    "get_artifact_suffix",
-)
 load("@prelude//linking:execution_preference.bzl", "LinkExecutionPreference")
 load(
     "@prelude//linking:link_info.bzl",
@@ -73,6 +52,27 @@ load(
     "depth_first_traversal_by",
 )
 load("@prelude//utils:utils.bzl", "flatten")
+load(
+    ":compile.bzl",
+    "PackagesInfo",
+    "get_packages_info",
+)
+load(
+    ":library_info.bzl",
+    "HaskellLibraryInfo",
+    "HaskellLibraryProvider",
+)
+load(
+    ":toolchain.bzl",
+    "HaskellToolchainInfo",
+)
+load(
+    ":util.bzl",
+    "attr_deps",
+    "attr_deps_haskell_lib_infos",
+    "attr_deps_haskell_link_infos",
+    "get_artifact_suffix",
+)
 
 GHCiPreloadDepsInfo = record(
     preload_symlinks = dict[str, Artifact],

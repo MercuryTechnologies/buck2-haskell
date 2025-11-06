@@ -52,59 +52,6 @@ load(
     "cxx_merge_cpreprocessors",
 )
 load(
-    "@prelude//haskell:compile.bzl",
-    "CompileResultInfo",
-    "compile",
-    "target_metadata",
-)
-load(
-    "@prelude//haskell:haskell_haddock.bzl",
-    "haskell_haddock_lib",
-)
-load(
-    "@prelude//haskell:library_info.bzl",
-    "HaskellLibraryInfo",
-    "HaskellLibraryInfoTSet",
-    "HaskellLibraryProvider",
-)
-load(
-    "@prelude//haskell:link_info.bzl",
-    "HaskellLinkGroupInfo",
-    "HaskellLinkInfo",
-    "HaskellProfLinkInfo",
-    "attr_link_style",
-    "cxx_toolchain_link_style",
-)
-load(
-    "@prelude//haskell:toolchain.bzl",
-    "DynamicHaskellPackageDbInfo",
-    "DynamicHaskellToolchainLibraryInfo",
-    "HaskellPackageDbTSet",
-    "HaskellToolchainInfo",
-    "HaskellToolchainLibrary",
-)
-load(
-    "@prelude//haskell:util.bzl",
-    "attr_deps",
-    "attr_deps_haskell_lib_infos",
-    "attr_deps_haskell_link_group_infos",
-    "attr_deps_haskell_link_infos",
-    "attr_deps_haskell_link_infos_sans_template_deps",
-    "attr_deps_haskell_toolchain_libraries",
-    "attr_deps_merged_link_infos",
-    "attr_deps_profiling_link_infos",
-    "attr_deps_shared_library_infos",
-    "error_on_non_haskell_srcs",
-    "get_artifact_suffix",
-    "get_source_prefixes",
-    "is_haskell_boot",
-    "is_haskell_src",
-    "output_extensions",
-    "src_to_module_name",
-    "srcs_to_pairs",
-    "to_hash",
-)
-load(
     "@prelude//linking:link_groups.bzl",
     "gather_link_group_libs",
     "merge_link_group_lib_info",
@@ -161,7 +108,60 @@ load("@prelude//utils:argfile.bzl", "at_argfile")
 load("@prelude//utils:arglike.bzl", "ArgLike")
 load("@prelude//utils:set.bzl", "set")
 load("@prelude//utils:utils.bzl", "filter_and_map_idx", "flatten")
+load(
+    ":compile.bzl",
+    "CompileResultInfo",
+    "compile",
+    "target_metadata",
+)
+load(
+    ":haskell_haddock.bzl",
+    "haskell_haddock_lib",
+)
+load(
+    ":library_info.bzl",
+    "HaskellLibraryInfo",
+    "HaskellLibraryInfoTSet",
+    "HaskellLibraryProvider",
+)
+load(
+    ":link_info.bzl",
+    "HaskellLinkGroupInfo",
+    "HaskellLinkInfo",
+    "HaskellProfLinkInfo",
+    "attr_link_style",
+    "cxx_toolchain_link_style",
+)
 load(":pkg_conf.bzl", "append_pkg_conf_link_fields_for_link_infos")
+load(
+    ":toolchain.bzl",
+    "DynamicHaskellPackageDbInfo",
+    "DynamicHaskellToolchainLibraryInfo",
+    "HaskellPackageDbTSet",
+    "HaskellToolchainInfo",
+    "HaskellToolchainLibrary",
+)
+load(
+    ":util.bzl",
+    "attr_deps",
+    "attr_deps_haskell_lib_infos",
+    "attr_deps_haskell_link_group_infos",
+    "attr_deps_haskell_link_infos",
+    "attr_deps_haskell_link_infos_sans_template_deps",
+    "attr_deps_haskell_toolchain_libraries",
+    "attr_deps_merged_link_infos",
+    "attr_deps_profiling_link_infos",
+    "attr_deps_shared_library_infos",
+    "error_on_non_haskell_srcs",
+    "get_artifact_suffix",
+    "get_source_prefixes",
+    "is_haskell_boot",
+    "is_haskell_src",
+    "output_extensions",
+    "src_to_module_name",
+    "srcs_to_pairs",
+    "to_hash",
+)
 
 HaskellIndexingTSet = transitive_set()
 
@@ -524,7 +524,7 @@ _WritePackageConfOptions = record(
     artifact_suffix = str,
     srcs = list[typing.Any],
     strip_prefix = list[str],
-    haskell_toolchain = HaskellToolchainInfo,
+    haskell_toolchain = Provider, #HaskellToolchainInfo,
     registerer = RunInfo,
 )
 
@@ -738,7 +738,7 @@ def _get_haskell_shared_library_name_linker_flags(
 
 _DynamicLinkSharedOptions = record(
     artifact_suffix = str,
-    haskell_toolchain = HaskellToolchainInfo,
+    haskell_toolchain = Provider, #HaskellToolchainInfo,
     infos = LinkArgs,
     link_args = ArgLike,  # TODO: is this redundant with `infos`?
     haskell_direct_deps_lib_infos = list[HaskellLibraryInfo],

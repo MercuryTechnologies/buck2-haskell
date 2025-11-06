@@ -5,20 +5,20 @@
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
 
-load("@prelude//haskell:compile.bzl", "CompileResultInfo", "CompiledModuleTSet", "DynamicCompileResultInfo")
-load("@prelude//haskell:link_info.bzl", "cxx_toolchain_link_style")
+load("@prelude//utils:graph_utils.bzl", "post_order_traversal")
+load("@prelude//:paths.bzl", "paths")
+load(":compile.bzl", "CompileResultInfo", "CompiledModuleTSet", "DynamicCompileResultInfo")
+load(":link_info.bzl", "cxx_toolchain_link_style")
 load(
-    "@prelude//haskell:toolchain.bzl",
+    ":toolchain.bzl",
     "HaskellToolchainInfo",
 )
 load(
-    "@prelude//haskell:util.bzl",
+    ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_link_infos",
     "src_to_module_name",
 )
-load("@prelude//utils:graph_utils.bzl", "post_order_traversal")
-load("@prelude//:paths.bzl", "paths")
 
 HaskellHaddockInfo = provider(
     fields = {

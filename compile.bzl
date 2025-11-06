@@ -12,25 +12,37 @@ load(
     "cxx_merge_cpreprocessors_actions",
 )
 load(
-    "@prelude//haskell:library_info.bzl",
+    "@prelude//linking:link_info.bzl",
+    "LinkStyle",
+    "MergedLinkInfo",
+    "get_link_args_for_strategy",
+    "to_link_strategy",
+    "unpack_link_args",
+)
+load("@prelude//utils:argfile.bzl", "argfile", "at_argfile")
+load("@prelude//utils:arglike.bzl", "ArgLike")
+load("@prelude//utils:graph_utils.bzl", "post_order_traversal")
+load("@prelude//utils:strings.bzl", "strip_prefix")
+load(
+    ":library_info.bzl",
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
 )
 load(
-    "@prelude//haskell:link_info.bzl",
+    ":link_info.bzl",
     "HaskellLinkGroupInfo",
     "HaskellLinkInfo",
 )
 load(
-    "@prelude//haskell:toolchain.bzl",
+    ":toolchain.bzl",
     "DynamicHaskellPackageDbInfo",
     "HaskellPackageDbTSet",
     "HaskellToolchainInfo",
     "HaskellToolchainLibrary",
 )
 load(
-    "@prelude//haskell:util.bzl",
+    ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_lib_infos",
     "attr_deps_haskell_link_group_infos",
@@ -46,18 +58,6 @@ load(
     "srcs_to_pairs",
     "to_hash",
 )
-load(
-    "@prelude//linking:link_info.bzl",
-    "LinkStyle",
-    "MergedLinkInfo",
-    "get_link_args_for_strategy",
-    "to_link_strategy",
-    "unpack_link_args",
-)
-load("@prelude//utils:argfile.bzl", "argfile", "at_argfile")
-load("@prelude//utils:arglike.bzl", "ArgLike")
-load("@prelude//utils:graph_utils.bzl", "post_order_traversal")
-load("@prelude//utils:strings.bzl", "strip_prefix")
 
 CompiledModuleInfo = provider(fields = {
     "name": provider_field(str),
@@ -160,7 +160,7 @@ _DynamicDoCompileOptions = record(
     enable_profiling = bool,
     external_tool_paths = list[RunInfo],
     ghc_wrapper = RunInfo,
-    haskell_toolchain = HaskellToolchainInfo,
+    haskell_toolchain = Provider, #HaskellToolchainInfo,
     label = Label,
     link_style = LinkStyle,
     link_args = ArgLike,
@@ -290,7 +290,7 @@ UnitParams = record(
     enable_haddock = field(bool),
     external_tool_paths = field(list[RunInfo]),
     artifact_suffix = field(str),
-    haskell_toolchain = field(HaskellToolchainInfo),
+    haskell_toolchain = field(Provider), #field(HaskellToolchainInfo),
     compiler_flags = field(list[str | ResolvedStringWithMacros]),
 )
 

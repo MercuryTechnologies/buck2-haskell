@@ -6,14 +6,14 @@
 # of this source tree.
 
 load(
-    "@prelude//haskell:toolchain.bzl",
-    "HaskellToolchainLibrary",
-)
-load(
     "@prelude//linking:link_info.bzl",
     "LinkStyle",
 )
 load("@prelude//utils:utils.bzl", "dedupe_by_value", "flatten")
+load(
+    ":toolchain.bzl",
+    "HaskellToolchainLibrary",
+)
 
 # A record of a Haskell library.
 HaskellLibraryInfo = record(
