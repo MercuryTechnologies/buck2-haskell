@@ -761,6 +761,7 @@ def _get_haskell_shared_library_name_linker_flags(
 _DynamicLinkSharedOptions = record(
     artifact_suffix = str,
     haskell_toolchain = HaskellToolchainInfo,
+    ghc_linker_wrapper = RunInfo,
     infos = LinkArgs,
     link_args = ArgLike,  # TODO: is this redundant with `infos`?
     haskell_direct_deps_lib_infos = list[HaskellLibraryInfo],
@@ -785,6 +786,7 @@ def _dynamic_link_shared_impl(
         extra_libs: list[Artifact],
         extra_lib_dyns: list[ResolvedDynamicValue],
         lib: OutputArtifact,
+        argfile: OutputArtifact,
         arg: _DynamicLinkSharedOptions) -> list[Provider]:
     # link group
     all_link_group_ids = [l.id for lg in arg.link_group_libs for l in lg.libraries]
@@ -840,36 +842,34 @@ def _dynamic_link_shared_impl(
         link_args.add("-package", lg.pkgname)
         link_cmd_hidden.append(lg.lib)
 
+    link_cmd_hidden.append(unpack_link_args(arg.infos))
     link_args.add(
         get_shared_library_flags(arg.linker_info.type),
         "-dynamic",
-        cmd_args(
-            _get_haskell_shared_library_name_linker_flags(arg.linker_info.type, arg.libfile),
-            prepend = "-optl",
-        ),
+        _get_haskell_shared_library_name_linker_flags(arg.linker_info.type, arg.libfile),
+        arg.objects,
+        arg.link_args,
+        "-o",
+        lib,
     )
 
     # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
     for dyn in extra_lib_dyns:
         fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
-        link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}"), prepend = "-optl"))
-
-    link_args.add(arg.objects)
-
-    link_cmd_hidden.append(unpack_link_args(arg.infos))
-
-    link_args.add(arg.link_args)
+        link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}")))
 
     link_cmd = cmd_args(
+        arg.ghc_linker_wrapper,
+        "--ghc",
         arg.haskell_toolchain.linker,
+        "--argfile-out",
+        argfile,
         at_argfile(
             actions = actions,
             name = "haskell_link_" + arg.artifact_suffix.replace("-", "_") + ".argsfile",
             args = link_args,
             allow_args = True,
         ),
-        "-o",
-        lib,
         hidden = link_cmd_hidden,
     )
 
@@ -886,6 +886,7 @@ _dynamic_link_shared = dynamic_actions(
     impl = _dynamic_link_shared_impl,
     attrs = {
         "arg": dynattrs.value(typing.Any),
+        "argfile": dynattrs.output(),
         "lib": dynattrs.output(),
         "pkg_deps": dynattrs.dynamic_value(),
         "extra_libs": dynattrs.value(typing.Any),
@@ -1011,9 +1012,11 @@ def _build_haskell_lib(
             extra_libs = extra_libs,
             extra_lib_dyns = extra_lib_dyns,
             lib = lib.as_output(),
+            argfile = ctx.actions.declare_output("ghc_link_args_processed.argsfile").as_output(),
             arg = _DynamicLinkSharedOptions(
                 artifact_suffix = artifact_suffix,
                 haskell_toolchain = haskell_toolchain,
+                ghc_linker_wrapper = ctx.attrs._ghc_linker_wrapper[RunInfo],
                 infos = infos,
                 haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
                 direct_deps_info = direct_deps_info,
@@ -1528,6 +1531,7 @@ _DynamicLinkBinaryOptions = record(
     enable_profiling = bool,
     haskell_direct_deps_lib_infos = list[HaskellLibraryInfo],
     haskell_toolchain = HaskellToolchainInfo,
+    ghc_linker_wrapper = RunInfo,
     link_args = cmd_args,
     link_style = LinkStyle,
     linker_flags = list[typing.Any],  # Arguments.
@@ -1541,6 +1545,7 @@ def _dynamic_link_binary_impl(
         actions: AnalysisActions,
         pkg_deps: ResolvedDynamicValue,
         output: OutputArtifact,
+        argfile: OutputArtifact,
         arg: _DynamicLinkBinaryOptions) -> list[Provider]:
     link_args = arg.link_args.copy()  # link is already frozen, make a copy
     link_cmd_hidden = []
@@ -1599,7 +1604,11 @@ def _dynamic_link_binary_impl(
 
     artifact_suffix = get_artifact_suffix(arg.link_style, arg.enable_profiling)
     link_cmd = cmd_args(
-        arg.haskell_toolchain.compiler,
+        arg.ghc_linker_wrapper,
+        "--ghc",
+        arg.haskell_toolchain.linker,
+        "--argfile-out",
+        argfile,
         at_argfile(
             actions = actions,
             name = "haskell_link_" + artifact_suffix.replace("-", "_") + ".argsfile",
@@ -1624,6 +1633,7 @@ _dynamic_link_binary = dynamic_actions(
         "arg": dynattrs.value(typing.Any),
         "pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
         "output": dynattrs.output(),
+        "argfile": dynattrs.output(),
     },
 )
 
@@ -1905,12 +1915,14 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     ctx.actions.dynamic_output_new(_dynamic_link_binary(
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
         output = output.as_output(),
+        argfile = ctx.actions.declare_output("ghc_link_args_processed.argsfile").as_output(),
         arg = _DynamicLinkBinaryOptions(
             deps = ctx.attrs.deps,
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
             enable_profiling = enable_profiling,
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
             haskell_toolchain = haskell_toolchain,
+            ghc_linker_wrapper = ctx.attrs._ghc_linker_wrapper[RunInfo],
             link_args = link_args,
             link_style = link_style,
             linker_flags = ctx.attrs.linker_flags,
@@ -1925,7 +1937,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         sos_dir = "__{}__shared_libs_symlink_tree".format(ctx.label.name)
         rpath_ref = get_rpath_origin(get_cxx_toolchain_info(ctx).linker_info.type)
         rpath_ldflag = "-Wl,{}/{}".format(rpath_ref, sos_dir)
-        link_args.add("-optl", "-Wl,-rpath", "-optl", rpath_ldflag)
+        link_args.add("-Wl,-rpath", rpath_ldflag)
         symlink_dir = create_shlib_symlink_tree(
             actions = ctx.actions,
             out = sos_dir,
@@ -2042,6 +2054,7 @@ _DynamicLinkGroupSharedOptions = record(
     linker_info = LinkerInfo,
     registerer = RunInfo,
     haskell_toolchain = HaskellToolchainInfo,
+    ghc_linker_wrapper = RunInfo,
     toolchain_deps = list[HaskellToolchainLibrary],
     project_deps = list[str],
     libs_tset = HaskellLibraryInfoTSet,
@@ -2054,6 +2067,7 @@ def _dynamic_link_group_shared_impl(
         actions: AnalysisActions,
         lib: OutputArtifact,
         db: OutputArtifact,
+        argfile: OutputArtifact,
         arg: _DynamicLinkGroupSharedOptions,
         toolchain_lib_dyn_infos: list[ResolvedDynamicValue],
         pkg_deps: ResolvedDynamicValue | None,
@@ -2103,27 +2117,28 @@ def _dynamic_link_group_shared_impl(
     # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
     for dyn in extra_lib_dyns:
         fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
-        link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}"), prepend = "-optl"))
+        link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}")))
 
     link_args.add(
         get_shared_library_flags(arg.linker_info.type),
         "-dynamic",
-        cmd_args(
-            _get_haskell_shared_library_name_linker_flags(arg.linker_info.type, arg.libfile),
-            prepend = "-optl",
-        ),
+        _get_haskell_shared_library_name_linker_flags(arg.linker_info.type, arg.libfile),
+        "-o",
+        lib,
     )
 
     link_cmd = cmd_args(
+        arg.ghc_linker_wrapper,
+        "--ghc",
         arg.haskell_toolchain.linker,
+        "--argfile-out",
+        argfile,
         at_argfile(
             actions = actions,
             name = "haskell_link_group_shared.argsfile",
             args = link_args,
             allow_args = True,
         ),
-        "-o",
-        lib,
         hidden = link_cmd_hidden,
     )
 
@@ -2156,6 +2171,7 @@ _dynamic_link_group_shared = dynamic_actions(
     attrs = {
         "lib": dynattrs.output(),
         "db": dynattrs.output(),
+        "argfile": dynattrs.output(),
         "arg": dynattrs.value(typing.Any),
         "toolchain_lib_dyn_infos": dynattrs.list(dynattrs.dynamic_value()),
         "pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
@@ -2176,6 +2192,7 @@ def make_haskell_link_group(
         enable_profiling: bool,
         registerer: RunInfo,
         haskell_toolchain: HaskellToolchainInfo,
+        ghc_linker_wrapper: RunInfo,
         linker_info: LinkerInfo,
         allow_cache_upload: bool) -> list[Provider]:
     actions = ctx.actions
@@ -2238,6 +2255,7 @@ def make_haskell_link_group(
     actions.dynamic_output_new(_dynamic_link_group_shared(
         lib = lib.as_output(),
         db = db.as_output(),
+        argfile = actions.declare_output("ghc_link_args_processed.argsfile").as_output(),
         arg = _DynamicLinkGroupSharedOptions(
             hlibs = hlibs,
             pkgname = pkgname,
@@ -2246,6 +2264,7 @@ def make_haskell_link_group(
             linker_info = linker_info,
             registerer = registerer,
             haskell_toolchain = haskell_toolchain,
+            ghc_linker_wrapper = ghc_linker_wrapper,
             toolchain_deps = toolchain_deps,
             project_deps = project_deps,
             libs_tset = libs_tset,
@@ -2288,6 +2307,7 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
         enable_profiling = enable_profiling,
         registerer = registerer,
         haskell_toolchain = haskell_toolchain,
+        ghc_linker_wrapper = ctx.attrs._ghc_linker_wrapper[RunInfo],
         linker_info = linker_info,
     )
     return results

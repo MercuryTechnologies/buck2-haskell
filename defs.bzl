@@ -70,6 +70,10 @@ def _scripts_arg():
             providers = [RunInfo],
             default = "@buck2-haskell//tools:ghc_wrapper",
         ),
+        "_ghc_linker_wrapper": attrs.dep(
+            providers = [RunInfo],
+            default = "@buck2-haskell//tools:ghc_linker_wrapper",
+        ),
         "_ghc_pkg_registerer": attrs.dep(
             providers = [RunInfo],
             default = "@buck2-haskell//tools:ghc_pkg_registerer",
@@ -430,6 +434,10 @@ haskell_link_group = rule(
         "deps": attrs.list(attrs.dep(), default = [], doc = """
     haskell_library dependencies which will be grouped by this target.
 """),
+        "_ghc_linker_wrapper": attrs.dep(
+            providers = [RunInfo],
+            default = "@buck2-haskell//tools:ghc_linker_wrapper",
+        ),
         "_ghc_pkg_registerer": attrs.dep(
             providers = [RunInfo],
             default = "@buck2-haskell//tools:ghc_pkg_registerer",
