@@ -749,6 +749,7 @@ def add_worker_args(
     command.add("--worker-target-id", "singleton" if haskell_toolchain.worker_make else to_hash(pkgname))
 
 def make_package_env(
+        *,
         actions: AnalysisActions,
         haskell_toolchain: HaskellToolchainInfo,
         label: Label,
@@ -974,13 +975,13 @@ def _common_compile_module_args(
         packagedb_args.add(toolchain_package_db_tset.project_as_args("package_db"))
 
         package_env_file = make_package_env(
-            actions,
-            arg.haskell_toolchain,
-            arg.label,
-            arg.link_style,
-            arg.enable_profiling,
-            arg.allow_worker,
-            packagedb_args,
+            actions = actions,
+            haskell_toolchain = arg.haskell_toolchain,
+            label = arg.label,
+            link_style = arg.link_style,
+            enable_profiling = arg.enable_profiling,
+            allow_worker = arg.allow_worker,
+            packagedb_args = packagedb_args,
         )
         package_env_args = cmd_args(
             package_env_file,
