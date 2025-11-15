@@ -8,8 +8,10 @@
 load("@prelude//:paths.bzl", "paths")
 load(
     "@prelude//cxx:preprocessor.bzl",
+    "CPreprocessor",
+    "CPreprocessorInfo",
+    "CPreprocessorTSet",
     "cxx_inherited_preprocessor_infos",
-    "cxx_merge_cpreprocessors_actions",
 )
 load(
     "@prelude//linking:link_info.bzl",
@@ -781,6 +783,15 @@ def _common_compile_wrapper_args(
 # This _could_ be `tuple[Artifact | ResolvedDynamicValue, ...]` but
 # `buildifier` hard-errors when `...` is used.
 _DirectDep = typing.Any
+
+# This function is from prelude//cxx/preprocessor.bzl only with ctx.actions -> actions
+def cxx_merge_cpreprocessors_actions(actions: AnalysisActions, own: list[CPreprocessor], xs: list[CPreprocessorInfo]) -> CPreprocessorInfo:
+    kwargs = {"children": [x.set for x in xs]}
+    if own:
+        kwargs["value"] = own
+    return CPreprocessorInfo(
+        set = actions.tset(CPreprocessorTSet, **kwargs),
+    )
 
 def _common_compile_module_args(
         actions: AnalysisActions,
