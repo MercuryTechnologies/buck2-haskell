@@ -8,8 +8,10 @@
 load("@prelude//:paths.bzl", "paths")
 load(
     "@prelude//cxx:preprocessor.bzl",
+    "CPreprocessor",
+    "CPreprocessorInfo",
+    "CPreprocessorTSet",
     "cxx_inherited_preprocessor_infos",
-    "cxx_merge_cpreprocessors_actions",
 )
 load(
     "@prelude//linking:link_info.bzl",
@@ -841,6 +843,15 @@ def _categorize_package_deps(
         library_deps = library_deps,
         exposed_package_modules = exposed_package_modules,
         exposed_package_dbs = exposed_package_dbs,
+    )
+
+# This function is from prelude//cxx/preprocessor.bzl only with ctx.actions -> actions
+def cxx_merge_cpreprocessors_actions(actions: AnalysisActions, own: list[CPreprocessor], xs: list[CPreprocessorInfo]) -> CPreprocessorInfo:
+    kwargs = {"children": [x.set for x in xs]}
+    if own:
+        kwargs["value"] = own
+    return CPreprocessorInfo(
+        set = actions.tset(CPreprocessorTSet, **kwargs),
     )
 
 def _common_compile_module_args(
