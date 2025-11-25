@@ -72,15 +72,20 @@ def determine_exposed_modules(ghc_pkg, package_name, pkgdb):
         ghc_pkg, "field", pkgdb, args=[package_name, "exposed-modules", "--simple-output"]
     ).strip()
     if ',' in package_data:
-        # See https://gitlab.haskell.org/ghc/ghc/-/issues/26351
-        # If commas are present then the package probably uses module
-        # re-exports, which causes ghc-pkg to use a more complex syntax, which
-        # looks like eg
+        # When re-exported modules are present, the list of exposed-modules is comma-separated, even
+        # when `--simple-output` is used. (See https://gitlab.haskell.org/ghc/ghc/-/issues/26351.)
         #
-        #   Foo.Bar, Foo.Baz, Foo.Quux from foo-quux-1.0.0-pkgid:Foo.Quux"
+        # Currently, targets that use a module must directly depend on a package which implements
+        # the module; depending on a package which re-exports that module isn't sufficient.
         #
-        # We only care about the module names here.
-        return [m.split(' ')[0] for m in package_data.split(', ')]
+        # The `exposed_modules` field is used by downstream tooling for deleting unused dependencies;
+        # in order for this list to be reliable for this purpose, re-exported modules must be excluded
+        # from it.
+        #
+        # Re-exported modules appear in this list followed by `from <versioned package name>`.
+        # We exclude re-exports by filtering out modules listed in this form.
+        packages_with_source_packages = [m.split(' from ') for m in package_data.split(', ')]
+        return list(map(lambda x: x[0], filter(lambda x: len(x) == 1, packages_with_source_packages)))
     else:
         return package_data.split()
 
