@@ -490,7 +490,8 @@ def _register_package_conf(
         packager: RunInfo,
         category_prefix: str,
         artifact_suffix: str,
-        use_empty_lib: bool) -> None:
+        use_empty_lib: bool,
+        allow_cache_upload: bool) -> None:
     register_cmd = cmd_args(registerer)
     register_cmd.add("--ghc-pkg", packager)
     register_cmd.add("--output", db)
@@ -501,7 +502,7 @@ def _register_package_conf(
         category = category_prefix + artifact_suffix.replace("-", "_"),
         identifier = "empty" if use_empty_lib else "final",
         # explicit turn this on for local_only actions to upload their results.
-        allow_cache_upload = True,
+        allow_cache_upload = allow_cache_upload,
     )
 
 def _mk_artifact_dir(dir_prefix: str, profiled: bool, link_style, subdir: str = "") -> str:
@@ -520,6 +521,7 @@ _WritePackageConfOptions = record(
     pkgname = str,
     hlis = list[HaskellLibraryInfo],
     use_empty_lib = bool,
+    allow_cache_upload = bool,
     enable_profiling = bool,
     artifact_suffix = str,
     srcs = list[typing.Any],
@@ -612,6 +614,7 @@ def _write_package_conf_impl(
         "haskell_package_",
         arg.artifact_suffix,
         arg.use_empty_lib,
+        arg.allow_cache_upload,
     )
 
     return []
@@ -690,6 +693,7 @@ def _make_package(
         pkgname = pkgname,
         hlis = hlis,
         use_empty_lib = use_empty_lib,
+        allow_cache_upload = ctx.attrs.allow_cache_upload,
         enable_profiling = enable_profiling,
         artifact_suffix = artifact_suffix,
         srcs = ctx.attrs.srcs,
@@ -754,6 +758,7 @@ _DynamicLinkSharedOptions = record(
     toolchain_libs_full = list[HaskellToolchainLibrary],
     project_libs_full = list[HaskellLibraryInfo],
     worker_target_id = str,
+    allow_cache_upload = bool,
 )
 
 def _dynamic_link_shared_impl(
@@ -837,7 +842,7 @@ def _dynamic_link_shared_impl(
         link_cmd,
         category = "haskell_link_" + arg.artifact_suffix.replace("-", "_"),
         # explicit turn this on for local_only actions to upload their results.
-        allow_cache_upload = True,
+        allow_cache_upload = arg.allow_cache_upload,
     )
 
     return []
@@ -968,6 +973,7 @@ def _build_haskell_lib(
                 project_libs_full = project_libs_full,
                 worker_target_id = pkgname,
                 link_args = link_args,
+                allow_cache_upload = ctx.attrs.allow_cache_upload,
             ),
         ))
 
@@ -1476,6 +1482,7 @@ def _make_link_package(
         category_prefix,
         artifact_suffix,
         False,
+        ctx.attrs.allow_cache_upload,
     )
 
     return db
@@ -1492,6 +1499,7 @@ _DynamicLinkBinaryOptions = record(
     direct_deps_info = list[HaskellLibraryInfoTSet],
     link_group_libs = list[HaskellLinkGroupInfo],
     toolchain_libs = list[str],
+    allow_cache_upload = bool,
 )
 
 def _dynamic_link_binary_impl(
@@ -1562,7 +1570,7 @@ def _dynamic_link_binary_impl(
         link_cmd,
         category = "haskell_link",
         # explicit turn this on for local_only actions to upload their results.
-        allow_cache_upload = True,
+        allow_cache_upload = arg.allow_cache_upload,
     )
 
     return []
@@ -1848,6 +1856,7 @@ def haskell_binary_impl(ctx: AnalysisContext) -> list[Provider]:
             direct_deps_info = direct_deps_info,
             link_group_libs = link_group_libs,
             toolchain_libs = toolchain_libs,
+            allow_cache_upload = ctx.attrs.allow_cache_upload,
         ),
     ))
 
@@ -1921,7 +1930,8 @@ def _make_link_group_package(
         db: OutputArtifact,
         hlibs: list[HaskellLibraryInfo],
         project_deps: list[str],
-        toolchain_lib_dyn_infos: list[ResolvedDynamicValue]) -> None:
+        toolchain_lib_dyn_infos: list[ResolvedDynamicValue],
+        allow_cache_upload: bool) -> None:
     artifact_suffix = get_artifact_suffix(link_style, False)
 
     toolchain_deps = [info.providers[DynamicHaskellToolchainLibraryInfo].id for info in toolchain_lib_dyn_infos]
@@ -1961,6 +1971,7 @@ def _make_link_group_package(
         "haskell_package_linkgroup_",
         artifact_suffix,
         False,
+        allow_cache_upload,
     )
 
 _DynamicLinkGroupSharedOptions = record(
@@ -1975,6 +1986,7 @@ _DynamicLinkGroupSharedOptions = record(
     project_deps = list[str],
     libs_tset = HaskellLibraryInfoTSet,
     link_args = LinkArgs,
+    allow_cache_upload = bool,
 )
 
 # Implement dynamic library linking for a link group
@@ -2052,7 +2064,7 @@ def _dynamic_link_group_shared_impl(
         link_cmd,
         category = "haskell_link_group_shared",
         identifier = arg.libname,
-        allow_cache_upload = True,
+        allow_cache_upload = arg.allow_cache_upload,
     )
 
     _make_link_group_package(
@@ -2067,6 +2079,7 @@ def _dynamic_link_group_shared_impl(
         hlibs = arg.hlibs,
         project_deps = arg.project_deps,
         toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
+        allow_cache_upload = arg.allow_cache_upload,
     )
 
     return []
@@ -2096,7 +2109,8 @@ def make_haskell_link_group(
         registerer: RunInfo,
         haskell_toolchain: HaskellToolchainInfo,
         linker_info: LinkerInfo,
-        link_args: LinkArgs) -> list[Provider]:
+        link_args: LinkArgs,
+        allow_cache_upload: bool) -> list[Provider]:
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
     dynamic_lib_suffix = "." + LINKERS[linker_info.type].default_shared_library_extension
     static_lib_suffix = "_p.a" if enable_profiling else ".a"
@@ -2151,6 +2165,7 @@ def make_haskell_link_group(
             project_deps = project_deps,
             libs_tset = libs_tset,
             link_args = link_args,
+            allow_cache_upload = allow_cache_upload,
         ),
         toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
         pkg_deps = pkg_deps,

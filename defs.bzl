@@ -117,6 +117,13 @@ def _incremental_arg():
 """),
     }
 
+def _allow_cache_upload_arg():
+    return {
+        "allow_cache_upload": attrs.bool(default = True, doc = """
+    Whether to upload artifacts to the cache
+"""),
+    }
+
 haskell_common = struct(
     srcs_arg = _srcs_arg,
     deps_arg = _deps_arg,
@@ -130,6 +137,7 @@ haskell_common = struct(
     strip_prefix_arg = _strip_prefix_arg,
     extra_libraries_arg = _extra_libraries_arg,
     incremental_arg = _incremental_arg,
+    allow_cache_upload_arg = _allow_cache_upload_arg,
 )
 
 haskell_binary = rule(
@@ -156,6 +164,7 @@ haskell_binary = rule(
         haskell_common.module_prefix_arg() |
         haskell_common.strip_prefix_arg() |
         haskell_common.incremental_arg() |
+        haskell_common.allow_cache_upload_arg() |
         buck.platform_deps_arg() |
         {
             "contacts": attrs.list(attrs.string(), default = []),
@@ -276,6 +285,7 @@ haskell_library = rule(
         haskell_common.module_prefix_arg() |
         haskell_common.strip_prefix_arg() |
         haskell_common.incremental_arg() |
+        haskell_common.allow_cache_upload_arg() |
         buck.platform_deps_arg() |
         native_common.link_whole(link_whole_type = attrs.bool(default = False)) |
         native_common.preferred_linkage(preferred_linkage_type = attrs.enum(Linkage.values())) |
@@ -305,7 +315,7 @@ haskell_library = rule(
 
 haskell_link_group = rule(
     impl = haskell_link_group_impl,
-    attrs = {
+    attrs = haskell_common.allow_cache_upload_arg() | {
         "deps": attrs.list(attrs.dep(), default = [], doc = """
     haskell_library dependencies which will be grouped by this target.
 """),

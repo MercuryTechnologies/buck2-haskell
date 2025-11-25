@@ -176,6 +176,7 @@ _DynamicDoCompileOptions = record(
     toolchain_deps_by_name = dict[str, None],
     worker = WorkerInfo | None,
     allow_worker = bool,
+    allow_cache_upload = bool,
     link_group_libs = list[HaskellLinkGroupInfo],
 )
 
@@ -389,6 +390,7 @@ MetadataParams = record(
     suffix = field(str),
     worker = field(None | WorkerInfo),
     allow_worker = field(bool),
+    allow_cache_upload = field(bool),
     label = field(Label | None),
     incremental = field(bool),
     cell_root = field(CellRoot),
@@ -504,8 +506,7 @@ def _dynamic_target_metadata_impl(
         md_args_outer,
         category = "haskell_metadata",
         identifier = arg.suffix if arg.suffix else None,
-        # explicit turn this on for local_only actions to upload their results.
-        allow_cache_upload = True,
+        allow_cache_upload = arg.allow_cache_upload,
     )
 
     return []
@@ -589,6 +590,7 @@ def target_metadata(
             cell_root = ctx.label.cell_root,
             worker = worker,
             allow_worker = ctx.attrs.allow_worker,
+            allow_cache_upload = ctx.attrs.allow_cache_upload,
             label = ctx.label,
             incremental = ctx.attrs.incremental,
         ),
@@ -1164,7 +1166,8 @@ def _compile_module(
         aux_deps: None | list[Artifact],
         src_envs: None | dict[str, ArgLike],
         worker: None | WorkerInfo,
-        allow_worker: bool) -> CompiledModuleTSet:
+        allow_worker: bool,
+        allow_cache_upload: bool) -> CompiledModuleTSet:
     use_worker = allow_worker and haskell_toolchain.use_worker
     worker_make = use_worker and haskell_toolchain.worker_make
 
@@ -1308,8 +1311,7 @@ def _compile_module(
         category = "haskell_compile_" + artifact_suffix.replace("-", "_"),
         identifier = module_name,
         dep_files = dep_files,
-        # explicit turn this on for local_only actions to upload their results.
-        allow_cache_upload = True,
+        allow_cache_upload = allow_cache_upload,
         **worker_args
     )
 
@@ -1379,6 +1381,7 @@ def _compile_incr(
             toolchain_deps_by_name = arg.toolchain_deps_by_name,
             worker = arg.worker,
             allow_worker = arg.allow_worker,
+            allow_cache_upload = arg.allow_cache_upload,
         )
 
 def compile_args(
@@ -1794,6 +1797,7 @@ def compile(
             toolchain_deps_by_name = toolchain_deps_by_name,
             worker = worker,
             allow_worker = ctx.attrs.allow_worker,
+            allow_cache_upload = ctx.attrs.allow_cache_upload,
             link_group_libs = attr_deps_haskell_link_group_infos(ctx),
         ),
     ))
