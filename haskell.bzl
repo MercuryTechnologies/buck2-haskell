@@ -152,7 +152,6 @@ load(
     "attr_deps_merged_link_infos",
     "attr_deps_profiling_link_infos",
     "attr_deps_shared_library_infos",
-    "error_on_non_haskell_srcs",
     "get_artifact_suffix",
     "get_source_prefixes",
     "is_haskell_boot",
@@ -1131,7 +1130,6 @@ def _build_haskell_lib(
 
 def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     sources = ctx.attrs.srcs
-    error_on_non_haskell_srcs(sources, ctx.label)
 
     preferred_linkage = _attr_preferred_linkage(ctx)
     if ctx.attrs.enable_profiling and preferred_linkage == Linkage("any"):
@@ -1586,7 +1584,6 @@ _dynamic_link_binary = dynamic_actions(
 
 def haskell_binary_impl(ctx: AnalysisContext) -> list[Provider]:
     sources = ctx.attrs.srcs
-    error_on_non_haskell_srcs(sources, ctx.label)
 
     enable_profiling = ctx.attrs.enable_profiling
 

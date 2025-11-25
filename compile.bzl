@@ -50,7 +50,6 @@ load(
     "attr_deps_haskell_link_group_infos",
     "attr_deps_haskell_link_infos",
     "attr_deps_haskell_toolchain_libraries",
-    "error_on_non_haskell_srcs",
     "get_artifact_suffix",
     "get_source_prefixes",
     "is_haskell_boot",
@@ -385,6 +384,7 @@ MetadataParams = record(
     haskell_direct_deps_lib_infos = field(list[HaskellLibraryInfo]),
     lib_package_name_and_prefix = field(cmd_args),
     md_gen = field(RunInfo),
+    validate_src = field(RunInfo | None),
     sources = field(list[Artifact]),
     strip_prefix = field(str),
     suffix = field(str),
@@ -401,6 +401,23 @@ def _dynamic_target_metadata_impl(
         output: OutputArtifact,
         arg: MetadataParams,
         pkg_deps: None | ResolvedDynamicValue) -> list[Provider]:
+
+    validate_outputs = []
+    if arg.validate_src:
+        for source in arg.sources:
+            if source.is_source:
+                apparent_path = source
+            else:
+                apparent_path = source.short_path
+            validate_output = actions.declare_output("validate_src", source.short_path + ".txt")
+            actions.run(
+                cmd_args(arg.validate_src, source, apparent_path, validate_output.as_output()),
+                category = "validate_src",
+                identifier = source.short_path,
+                allow_cache_upload = arg.allow_cache_upload,
+            )
+            validate_outputs.append(validate_output)
+
     munit = arg.unit
     unit = munit.unit
     haskell_toolchain = unit.haskell_toolchain
@@ -493,6 +510,10 @@ def _dynamic_target_metadata_impl(
         # We won't need to look at the ghc argsfile later, but the user might!
         md_args.add("--use-ghc-args-file-at", actions.declare_output("ghc-args").as_output())
 
+    # Ensure that all src validations have succeeded (if any) before we attempt
+    # to build metadata.
+    md_args.add(cmd_args(hidden = validate_outputs))
+
     # pass the cell root directory as the working directory for ghc
     md_args_outer = cmd_args(arg.md_gen, "--cwd", arg.cell_root)
     md_args_outer.add(at_argfile(
@@ -533,6 +554,7 @@ def target_metadata(
     link_suffix = "-" + link_style.value
     md_file = ctx.actions.declare_output(ctx.label.name + link_suffix + prof_suffix + ".md.json")
     md_gen = ctx.attrs._generate_target_metadata[RunInfo]
+    validate_src = ctx.attrs.validate_src[RunInfo] if ctx.attrs.validate_src else None
 
     libprefix = repr(ctx.label.path).replace("//", "_").replace("/", "_")
 
@@ -583,6 +605,7 @@ def target_metadata(
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
             lib_package_name_and_prefix = _attr_deps_haskell_lib_package_name_and_prefix(ctx, link_style),
             md_gen = md_gen,
+            validate_src = validate_src,
             sources = sources,
             strip_prefix = _strip_prefix(str(ctx.label.cell_root), str(ctx.label.path)),
             suffix = link_style.value + ("+prof" if enable_profiling else ""),
@@ -899,7 +922,6 @@ def _common_compile_module_args(
         for (path, src) in srcs_to_pairs(sources)
         if not is_haskell_src(path) and not is_haskell_boot(path)
     ]
-    error_on_non_haskell_srcs(sources, label)
 
     # These arguments are used in both modes and can be passed in an argsfile.
     args_for_file = cmd_args([], hidden = non_haskell_sources)
