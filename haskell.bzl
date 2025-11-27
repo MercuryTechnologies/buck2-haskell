@@ -104,6 +104,8 @@ load(
     "@prelude//python:python.bzl",
     "PythonLibraryInfo",
 )
+load("@prelude//test:inject_test_run_info.bzl", "inject_test_run_info")
+load("@prelude//tests:re_utils.bzl", "get_re_executors_from_props")
 load("@prelude//utils:argfile.bzl", "at_argfile")
 load("@prelude//utils:arglike.bzl", "ArgLike")
 load("@prelude//utils:set.bzl", "set")
@@ -1582,7 +1584,26 @@ _dynamic_link_binary = dynamic_actions(
     },
 )
 
+HaskellExecutableOutput = record(
+    binary = Artifact,
+    sub_targets = dict[str, list[DefaultInfo]],
+    run = ArgLike,
+    index_info = field(HaskellIndexInfo | None),
+)
+
 def haskell_binary_impl(ctx: AnalysisContext) -> list[Provider]:
+    exe = _haskell_executable(ctx)
+
+    providers = [
+        DefaultInfo(exe.binary, sub_targets = exe.sub_targets),
+        RunInfo(args = exe.run),
+    ]
+    if exe.index_info:
+        providers.append(exe.index_info)
+
+    return providers
+
+def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     sources = ctx.attrs.srcs
 
     enable_profiling = ctx.attrs.enable_profiling
@@ -1877,18 +1898,12 @@ def haskell_binary_impl(ctx: AnalysisContext) -> list[Provider]:
         enable_profiling = enable_profiling,
     ))
 
-    providers = [
-        DefaultInfo(
-            default_output = output,
-            sub_targets = sub_targets,
-        ),
-        RunInfo(args = run),
-    ]
-
-    if indexing_tsets:
-        providers.append(HaskellIndexInfo(info = indexing_tsets))
-
-    return providers
+    return HaskellExecutableOutput(
+        binary = output,
+        sub_targets = sub_targets,
+        run = run,
+        index_info = HaskellIndexInfo(info = indexing_tsets) if indexing_tsets else None,
+    )
 
 def _haskell_module_sub_targets(
         *,
@@ -2215,3 +2230,44 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
         link_args = link_args,
     )
     return results
+
+def haskell_test_impl(ctx: AnalysisContext) -> list[Provider]:
+    exe = _haskell_executable(ctx)
+
+    # Add test arguments if provided
+    test_cmd = cmd_args(exe.run)
+    if ctx.attrs.args:
+        test_cmd.add(ctx.attrs.args)
+
+    # Prepare environment variables
+    test_env = {}
+    if ctx.attrs.env:
+        test_env.update(ctx.attrs.env)
+
+    # Setup RE executors based on the `remote_execution` param.
+    re_executor, executor_overrides = get_re_executors_from_props(ctx)
+
+    run_from_project_root = "buck2_run_from_project_root" in (ctx.attrs.labels or []) or re_executor != None
+
+    # Add test execution info using the inject_test_run_info function
+    providers = [
+        DefaultInfo(exe.binary, sub_targets = exe.sub_targets),
+    ] + inject_test_run_info(
+        ctx,
+        ExternalRunnerTestInfo(
+            type = "haskell_test",
+            command = [test_cmd],
+            env = test_env,
+            labels = ctx.attrs.labels,
+            contacts = ctx.attrs.contacts,
+            default_executor = re_executor,
+            executor_overrides = executor_overrides,
+            run_from_project_root = run_from_project_root,
+            use_project_relative_paths = re_executor != None,
+        ),
+    )
+
+    if exe.index_info:
+        providers.append(exe.index_info)
+
+    return providers

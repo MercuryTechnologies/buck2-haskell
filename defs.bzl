@@ -1,6 +1,7 @@
 load("@prelude//cxx:link_groups_types.bzl", "LINK_GROUP_MAP_ATTR")
 load("@prelude//decls:common.bzl", "LinkableDepType", "buck")
 load("@prelude//decls:native_common.bzl", "native_common")
+load("@prelude//decls:re_test_common.bzl", "re_test_common")
 load("@prelude//decls/toolchains_common.bzl", "toolchains_common")
 load("@prelude//linking:types.bzl", "Linkage")
 load(
@@ -9,6 +10,7 @@ load(
     "haskell_library_impl",
     "haskell_link_group_impl",
     "haskell_prebuilt_library_impl",
+    "haskell_test_impl",
     "haskell_toolchain_library_impl",
 )
 load(":haskell_ghci.bzl", "haskell_ghci_impl")
@@ -183,55 +185,120 @@ haskell_common = struct(
     allow_cache_upload_arg = _allow_cache_upload_arg,
 )
 
+_common_binary_attrs = (
+    # @unsorted-dict-items
+    {
+        "main": attrs.option(attrs.string(), default = None, doc = """
+            The main module serving as the entry point into the binary. If not specified,
+                the compiler default is used.
+        """),
+    } |
+    native_common.link_group_deps() |
+    native_common.link_group_public_deps_label() |
+    native_common.link_style() |
+    haskell_common.srcs_arg() |
+    haskell_common.external_tools_arg() |
+    haskell_common.validate_src_arg() |
+    haskell_common.srcs_envs_arg() |
+    haskell_common.extra_libraries_arg() |
+    haskell_common.compiler_flags_arg() |
+    haskell_common.ghc_rts_flags_arg() |
+    haskell_common.deps_arg() |
+    haskell_common.scripts_arg() |
+    haskell_common.module_prefix_arg() |
+    haskell_common.strip_prefix_arg() |
+    haskell_common.incremental_arg() |
+    haskell_common.allow_cache_upload_arg() |
+    buck.platform_deps_arg() |
+    {
+        "contacts": attrs.list(attrs.string(), default = []),
+        "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
+        "deps_query": attrs.option(attrs.query(), default = None),
+        "enable_profiling": attrs.bool(default = False),
+        "ghci_platform_preload_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
+        "ghci_preload_deps": attrs.set(attrs.dep(), sorted = True, default = []),
+        "labels": attrs.list(attrs.string(), default = []),
+        "licenses": attrs.list(attrs.source(), default = []),
+        "link_deps_query_whole": attrs.bool(default = False),
+        "linker_flags": attrs.list(attrs.arg(), default = []),
+        "platform": attrs.option(attrs.string(), default = None),
+        "platform_linker_flags": attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.arg())), default = []),
+        "allow_worker": attrs.bool(default = True),
+
+        # extra needed (from rules_impl.bzl)
+        "auto_link_groups": attrs.bool(default = False),
+        "link_group_map": LINK_GROUP_MAP_ATTR,
+        "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
+        "_cxx_toolchain": toolchains_common.cxx(),
+        "_haskell_toolchain": haskell_toolchain(),
+    }
+)
+
 haskell_binary = rule(
     impl = haskell_binary_impl,
+    attrs = _common_binary_attrs,
+)
+
+haskell_test = rule(
+    impl = haskell_test_impl,
+    doc = """
+        A `haskell_test()` rule builds a Haskell binary from the supplied set of Haskell source files
+        and dependencies and runs it as a test.
+    
+        ```
+        # A rule that builds and runs a Haskell test.
+        haskell_test(
+          name = 'my_test',
+          srcs = [
+            'MyTest.hs',
+          ],
+          deps = [
+            ':my_library',
+          ],
+        )
+
+        ```
+    """,
     attrs = (
+        _common_binary_attrs |
         # @unsorted-dict-items
         {
             "main": attrs.option(attrs.string(), default = None, doc = """
-                The main module serving as the entry point into the binary. If not specified,
+                The main module serving as the entry point into the test binary. If not specified,
                  the compiler default is used.
             """),
-        } |
-        native_common.link_group_deps() |
-        native_common.link_group_public_deps_label() |
-        native_common.link_style() |
-        haskell_common.srcs_arg() |
-        haskell_common.external_tools_arg() |
-        haskell_common.validate_src_arg() |
-        haskell_common.srcs_envs_arg () |
-        haskell_common.extra_libraries_arg () |
-        haskell_common.compiler_flags_arg() |
-        haskell_common.ghc_rts_flags_arg() |
-        haskell_common.deps_arg() |
-        haskell_common.scripts_arg() |
-        haskell_common.module_prefix_arg() |
-        haskell_common.strip_prefix_arg() |
-        haskell_common.incremental_arg() |
-        haskell_common.allow_cache_upload_arg() |
-        buck.platform_deps_arg() |
-        {
-            "contacts": attrs.list(attrs.string(), default = []),
-            "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
-            "deps_query": attrs.option(attrs.query(), default = None),
-            "enable_profiling": attrs.bool(default = False),
-            "ghci_platform_preload_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
-            "ghci_preload_deps": attrs.set(attrs.dep(), sorted = True, default = []),
-            "labels": attrs.list(attrs.string(), default = []),
-            "licenses": attrs.list(attrs.source(), default = []),
-            "link_deps_query_whole": attrs.bool(default = False),
-            "linker_flags": attrs.list(attrs.arg(), default = []),
-            "platform": attrs.option(attrs.string(), default = None),
-            "platform_linker_flags": attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.arg())), default = []),
-            "allow_worker": attrs.bool(default = True),
+            "env": attrs.dict(key = attrs.string(), value = attrs.arg(), sorted = False, default = {}, doc = """
+                A map of environment names and values to set when running the test.
+                
+                
+                It is also possible to expand references to other rules within the **values** of
+                these environment variables, using builtin `string parameter macros`:
 
-            # extra needed (from rules_impl.bzl)
-            "auto_link_groups": attrs.bool(default = False),
-            "link_group_map": LINK_GROUP_MAP_ATTR,
-            "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
-            "_cxx_toolchain": toolchains_common.cxx(),
-            "_haskell_toolchain": haskell_toolchain(),
-        }
+                `$(location //path/to:target)`
+                Expands to the location of the output of the build rule. This
+                 means that you can refer to these without needing to be aware of how
+                 Buck is storing data on the disk mid-build.
+            """),
+            "args": attrs.list(attrs.arg(), default = [], doc = """
+                A list of additional arguments to pass to the test when it's run.
+
+
+                It is also possible to expand references to other rules within these
+                arguments, using builtin `string parameter macros`:
+
+                `$(location //path/to:target)`
+                Expands to the location of the output of the build rule. This
+                 means that you can refer to these without needing to be aware of how
+                 Buck is storing data on the disk mid-build.
+            """),
+        } |
+        buck.run_test_separately_arg(run_test_separately_type = attrs.option(attrs.bool(), default = None)) |
+        buck.test_rule_timeout_ms() |
+        {
+            #"_worker": attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None),
+            "_inject_test_env": attrs.default_only(attrs.dep(default = "prelude//test/tools:inject_test_env")),
+        } |
+        re_test_common.test_args()
     ),
 )
 
@@ -435,5 +502,6 @@ haskell_rules = struct(
     haskell_library = haskell_library,
     haskell_link_group = haskell_link_group,
     haskell_prebuilt_library = haskell_prebuilt_library,
+    haskell_test = haskell_test,
     haskell_toolchain_library = haskell_toolchain_library,
 )
