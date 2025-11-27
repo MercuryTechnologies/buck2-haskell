@@ -598,6 +598,7 @@ def _write_package_conf_impl(
 
     append_pkg_conf_link_fields_for_link_infos(
         pkgname = arg.pkgname,
+        pkg_conf_artifact = pkg_conf,
         pkg_conf = conf,
         link_infos = arg.link_infos,
     )
