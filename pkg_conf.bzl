@@ -15,6 +15,7 @@ PkgConfLinkFields = record(
 def get_pkg_conf_link_fields(
         *,
         pkgname: str,
+        pkg_conf_artifact: OutputArtifact,
         link_infos: list[LinkInfo]) -> PkgConfLinkFields:
     """
     Arguments:
@@ -39,7 +40,8 @@ def get_pkg_conf_link_fields(
 
         for linkable in link_info.linkables:
             if isinstance(linkable, SharedLibLinkable):
-                library_dirs.add(linkable.lib)
+                libpath = cmd_args(linkable.lib, relative_to = pkg_conf_artifact)
+                library_dirs.add(cmd_args(libpath, format = "${pkgroot}/{}"))
 
                 # This seems extremely incorrect but it's what
                 # `../linking/link_info.bzl` does as well!
@@ -58,8 +60,13 @@ def append_pkg_conf_link_fields(*, pkg_conf: cmd_args, link_fields: PkgConfLinkF
     pkg_conf.add(cmd_args(cmd_args(link_fields.library_dirs, delimiter = ","), format = "library-dirs: {}"))
     pkg_conf.add(cmd_args(cmd_args(link_fields.extra_libraries, delimiter = ","), format = "extra-libraries: {}"))
 
-def append_pkg_conf_link_fields_for_link_infos(*, pkgname: str, pkg_conf: cmd_args, link_infos: list[LinkInfo]) -> None:
+def append_pkg_conf_link_fields_for_link_infos(
+        *,
+        pkgname: str,
+        pkg_conf_artifact : OutputArtifact,
+        pkg_conf: cmd_args,
+        link_infos: list[LinkInfo]) -> None:
     append_pkg_conf_link_fields(
         pkg_conf = pkg_conf,
-        link_fields = get_pkg_conf_link_fields(pkgname = pkgname, link_infos = link_infos),
+        link_fields = get_pkg_conf_link_fields(pkgname = pkgname, pkg_conf_artifact = pkg_conf_artifact, link_infos = link_infos),
     )
