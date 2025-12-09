@@ -15,7 +15,8 @@ PkgConfLinkFields = record(
 def get_pkg_conf_link_fields(
         *,
         pkgname: str,
-        link_infos: list[LinkInfo]) -> PkgConfLinkFields:
+        link_infos: list[LinkInfo],
+        ) -> PkgConfLinkFields:
     """
     Arguments:
         pkgname: Used for debug messages
@@ -54,12 +55,24 @@ def get_pkg_conf_link_fields(
         ld_options = ld_options,
     )
 
-def append_pkg_conf_link_fields(*, pkg_conf: cmd_args, link_fields: PkgConfLinkFields) -> None:
+def append_pkg_conf_link_fields(
+    *,
+    pkg_conf: cmd_args,
+    link_fields: PkgConfLinkFields,
+    extra_ld_opts: cmd_args) -> None:
     pkg_conf.add(cmd_args(cmd_args(link_fields.library_dirs, delimiter = ","), format = "library-dirs: {}"))
     pkg_conf.add(cmd_args(cmd_args(link_fields.extra_libraries, delimiter = ","), format = "extra-libraries: {}"))
+    pkg_conf.add(cmd_args(extra_ld_opts, format = "ld-options: {}"))
 
-def append_pkg_conf_link_fields_for_link_infos(*, pkgname: str, pkg_conf: cmd_args, link_infos: list[LinkInfo]) -> None:
+def append_pkg_conf_link_fields_for_link_infos(
+    *,
+    pkgname: str,
+    pkg_conf: cmd_args,
+    link_infos: list[LinkInfo],
+    extra_ld_opts: cmd_args) -> None:
+
     append_pkg_conf_link_fields(
         pkg_conf = pkg_conf,
         link_fields = get_pkg_conf_link_fields(pkgname = pkgname, link_infos = link_infos),
+        extra_ld_opts = extra_ld_opts,
     )
