@@ -12,7 +12,9 @@ load(
 load(
     "@prelude//linking:link_info.bzl",
     "LinkStyle",
+     "MergedLinkInfo",
 )
+load("@prelude//utils:arglike.bzl", "ArgLike")
 load(
     ":library_info.bzl",
     "HaskellLibraryInfo",
@@ -55,3 +57,14 @@ def attr_link_style(ctx: AnalysisContext) -> LinkStyle:
         return LinkStyle(ctx.attrs.link_style)
     else:
         return cxx_toolchain_link_style(ctx)
+
+# External linkable taylored for GHC-as-a-linker. This is needed because some linker
+# options cannot be passed directly to GHC as a linker.
+ExtraGhcLinkerFlagsInfo = provider(fields = {
+    "flags": list[ArgLike],
+})
+
+GhcLinkableInfo = provider(fields = {
+    "extra_ghc_linker_flags_dynamic": DynamicValue,
+    "wrapped_info": MergedLinkInfo,
+})

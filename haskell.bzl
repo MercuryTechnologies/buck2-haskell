@@ -128,6 +128,8 @@ load(
 )
 load(
     ":link_info.bzl",
+    "ExtraGhcLinkerFlagsInfo",
+    "GhcLinkableInfo",
     "HaskellLinkGroupInfo",
     "HaskellLinkInfo",
     "HaskellProfLinkInfo",
@@ -535,6 +537,7 @@ def _write_package_conf_impl(
         actions: AnalysisActions,
         md_file: ArtifactValue,
         toolchain_lib_dyn_infos: list[ResolvedDynamicValue],
+        extra_lib_dyns: list[ResolvedDynamicValue],
         pkg_conf: OutputArtifact,
         db: OutputArtifact,
         libname: str | None,
@@ -598,10 +601,17 @@ def _write_package_conf_impl(
         conf.add(cmd_args(cmd_args(library_dirs, delimiter = ","), format = "library-dirs: {}"))
         conf.add(cmd_args(libname, format = "hs-libraries: {}"))
 
+    extra_ld_opts = cmd_args()
+    # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
+    for dyn in extra_lib_dyns:
+        fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
+        extra_ld_opts.add(cmd_args(cmd_args(fs, delimiter = ","), format = "\"-Wl,{}\""))
+
     append_pkg_conf_link_fields_for_link_infos(
         pkgname = arg.pkgname,
         pkg_conf = conf,
         link_infos = arg.link_infos,
+        extra_ld_opts = extra_ld_opts,
     )
 
     pkg_conf_artifact = actions.write(pkg_conf, conf)
@@ -625,6 +635,7 @@ _write_package_conf = dynamic_actions(
     attrs = {
         "md_file": dynattrs.artifact_value(),
         "toolchain_lib_dyn_infos": dynattrs.list(dynattrs.dynamic_value()),
+        "extra_lib_dyns": dynattrs.list(dynattrs.dynamic_value()),
         "pkg_conf": dynattrs.output(),
         "db": dynattrs.output(),
         "libname": dynattrs.value(typing.Any),
@@ -678,9 +689,9 @@ def _make_package(
         get_link_args_for_strategy(
             ctx,
             [
-                lib[MergedLinkInfo]
+                lib[GhcLinkableInfo].wrapped_info
                 for lib in ctx.attrs.extra_libraries
-                if MergedLinkInfo in lib
+                if GhcLinkableInfo in lib
             ],
             to_link_strategy(link_style),
         ),
@@ -706,10 +717,18 @@ def _make_package(
     toolchain_libs = attr_deps_haskell_toolchain_libraries(ctx)
     toolchain_lib_dyn_infos = [dep.dynamic for dep in toolchain_libs]
 
+    # extra-libraries
+    extra_lib_dyns = [
+        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
+        for lib in ctx.attrs.extra_libraries
+        if GhcLinkableInfo in lib
+    ]
+
     ctx.actions.dynamic_output_new(
         _write_package_conf(
             md_file = md_file,
             toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
+            extra_lib_dyns = extra_lib_dyns,
             pkg_conf = pkg_conf.as_output(),
             db = db.as_output(),
             libname = libname,
@@ -765,6 +784,7 @@ _DynamicLinkSharedOptions = record(
 def _dynamic_link_shared_impl(
         actions: AnalysisActions,
         pkg_deps: ResolvedDynamicValue,
+        extra_lib_dyns: list[ResolvedDynamicValue],
         lib: OutputArtifact,
         arg: _DynamicLinkSharedOptions) -> list[Provider]:
     # link group
@@ -820,6 +840,11 @@ def _dynamic_link_shared_impl(
         ),
     )
 
+    # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
+    for dyn in extra_lib_dyns:
+        fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
+        link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}"), prepend = "-optl"))
+
     link_args.add(arg.objects)
 
     link_cmd_hidden.append(unpack_link_args(arg.infos))
@@ -854,6 +879,7 @@ _dynamic_link_shared = dynamic_actions(
         "arg": dynattrs.value(typing.Any),
         "lib": dynattrs.output(),
         "pkg_deps": dynattrs.dynamic_value(),
+        "extra_lib_dyns": dynattrs.list(dynattrs.dynamic_value()),
     },
 )
 
@@ -918,12 +944,18 @@ def _build_haskell_lib(
     project_libs_full = attr_deps_haskell_lib_infos(ctx, link_style, enable_profiling)
 
     # extra-libraries
+    extra_lib_dyns = [
+        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
+        for lib in ctx.attrs.extra_libraries
+        if GhcLinkableInfo in lib
+    ]
+
     link_args = unpack_link_args(get_link_args_for_strategy(
         ctx,
         [
-            lib[MergedLinkInfo]
+            lib[GhcLinkableInfo].wrapped_info
             for lib in ctx.attrs.extra_libraries
-            if MergedLinkInfo in lib
+            if GhcLinkableInfo in lib
         ],
         to_link_strategy(link_style),
     ))
@@ -955,6 +987,7 @@ def _build_haskell_lib(
 
         ctx.actions.dynamic_output_new(_dynamic_link_shared(
             pkg_deps = haskell_toolchain.packages.dynamic,
+            extra_lib_dyns = extra_lib_dyns,
             lib = lib.as_output(),
             arg = _DynamicLinkSharedOptions(
                 artifact_suffix = artifact_suffix,
@@ -1660,9 +1693,9 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     link_args.add(unpack_link_args(get_link_args_for_strategy(
         ctx,
         [
-            lib[MergedLinkInfo]
+            lib[GhcLinkableInfo]
             for lib in ctx.attrs.extra_libraries
-            if MergedLinkInfo in lib
+            if GhcLinkableInfo in lib
         ],
         to_link_strategy(link_style),
     )))
@@ -2211,9 +2244,9 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
     link_args = get_link_args_for_strategy(
         ctx,
         [
-            lib[MergedLinkInfo]
+            lib[GhcLinkableInfo].wrapped_info
             for lib in direct_extra_libs
-            if MergedLinkInfo in lib
+            if GhcLinkableInfo in lib
         ],
         to_link_strategy(link_style),
     )
