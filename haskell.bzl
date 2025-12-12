@@ -1885,7 +1885,8 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             out = sos_dir,
             shared_libs = sos,
         )
-        run = cmd_args(output, hidden = symlink_dir)
+
+        run = cmd_args(output, hidden = [symlink_dir] + [link_group.lib for link_group in link_group_libs])
     else:
         run = cmd_args(output)
 
