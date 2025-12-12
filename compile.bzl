@@ -487,13 +487,14 @@ def _dynamic_target_metadata_impl(
     md_args.add("--unit-args", ghc_args_file)
 
     if arg.allow_worker and haskell_toolchain.use_worker and haskell_toolchain.worker_make:
+        dep_units = transitive_metadata(actions, unit.name, packages_info)
         bp_args = cmd_args()
         bp_args.add("-M")
         bp_args.add("--ghc-dir", haskell_toolchain.ghc_dir)
         add_worker_args(haskell_toolchain, bp_args, unit.name)
 
         bp_args.add(buck2_args)
-        bp_args.add(transitive_metadata(actions, unit.name, packages_info))
+        bp_args.add(dep_units)
         bp_args.add("--unit", unit.name)
         bp_args.add(cmd_args(ghc_args_file, prepend = "--ghc-args", hidden = [build_plan.as_output(), makefile.as_output()]))
 
@@ -503,6 +504,7 @@ def _dynamic_target_metadata_impl(
             identifier = arg.suffix if arg.suffix else None,
             exe = WorkerRunInfo(worker = arg.worker),
         )
+        md_args.add(dep_units)
         md_args.add("--build-plan", build_plan)
         md_args.add("--unit-args", ghc_args_file)
     else:
@@ -1131,7 +1133,8 @@ def _compile_make_args(
         module_name: str,
         module: _Module,
         outputs: dict[Artifact, OutputArtifact],
-        dependency_modules: CompiledModuleTSet) -> cmd_args:
+        dependency_modules: CompiledModuleTSet,
+        md_file: Artifact) -> cmd_args:
     # Provide all module dependencies to the worker for state restoration from cache, including both the current unit
     # and other library targets.
     # Topological order is necessary to ensure that no module is loaded before its dependencies are, and since this
@@ -1147,6 +1150,8 @@ def _compile_make_args(
         common_args.pkgname,
         "--module",
         module_name,
+        "--home-unit",
+        md_file,
         hidden = [
             _get_module_outputs(module, outputs),
             module.source,
@@ -1245,6 +1250,7 @@ def _compile_module(
             module = module,
             outputs = outputs,
             dependency_modules = dependency_modules,
+            md_file = md_file,
         ))
 
         # The make worker does not support stub dirs at the moment, so we create it directly.

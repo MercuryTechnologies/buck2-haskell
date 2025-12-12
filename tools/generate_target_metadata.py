@@ -120,6 +120,11 @@ def main():
         type=str,
         help="Args used to reconstruct the persistent worker's environment when recompiling",
     )
+    parser.add_argument(
+        "--dep-units",
+        type=str,
+        help="Metadata files of targets in the dependency closure",
+    )
     args = parser.parse_args()
 
     result = obtain_target_metadata(args)
@@ -165,6 +170,7 @@ def obtain_target_metadata(args):
         "build_plan": ghc_depends,
         "unit_args": args.unit_args,
         "unit_buck_args": args.unit_buck_args,
+        "dep_units": args.dep_units,
     }
 
 
