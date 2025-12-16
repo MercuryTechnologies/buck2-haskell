@@ -2004,6 +2004,7 @@ def _make_link_group_package(
         pkgname = pkgname,
         pkg_conf = conf,
         link_infos = link_infos,
+        extra_ld_opts = cmd_args(),
     )
 
     pkg_conf = actions.write("pkg-" + artifact_suffix, conf)
