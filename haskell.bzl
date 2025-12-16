@@ -2043,8 +2043,11 @@ def _dynamic_link_group_shared_impl(
         db: OutputArtifact,
         arg: _DynamicLinkGroupSharedOptions,
         toolchain_lib_dyn_infos: list[ResolvedDynamicValue],
-        pkg_deps: ResolvedDynamicValue | None):
+        pkg_deps: ResolvedDynamicValue | None,
+        extra_lib_dyns: list[ResolvedDynamicValue],
+    ):
     link_cmd_hidden = []
+
     link_args = cmd_args()
     link_args.add(arg.haskell_toolchain.linker_flags)
 
@@ -2084,6 +2087,10 @@ def _dynamic_link_group_shared_impl(
             link_args.add(o)
 
     link_args.add(unpack_link_args(arg.link_args))
+    # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
+    for dyn in extra_lib_dyns:
+        fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
+        link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}"), prepend = "-optl"))
 
     link_args.add(
         get_shared_library_flags(arg.linker_info.type),
@@ -2139,6 +2146,7 @@ _dynamic_link_group_shared = dynamic_actions(
         "arg": dynattrs.value(typing.Any),
         "toolchain_lib_dyn_infos": dynattrs.list(dynattrs.dynamic_value()),
         "pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
+        "extra_lib_dyns": dynattrs.list(dynattrs.dynamic_value()),
     },
 )
 
@@ -2146,7 +2154,7 @@ _dynamic_link_group_shared = dynamic_actions(
 # Link group creates a virtual package with only shared and static library artifacts
 # This saves linking time.
 def make_haskell_link_group(
-        actions: AnalysisActions,
+        ctx: AnalysisContext,
         *,
         label: Label,
         hlibs: list[HaskellLibraryInfo],
@@ -2156,8 +2164,8 @@ def make_haskell_link_group(
         registerer: RunInfo,
         haskell_toolchain: HaskellToolchainInfo,
         linker_info: LinkerInfo,
-        link_args: LinkArgs,
         allow_cache_upload: bool) -> list[Provider]:
+    actions = ctx.actions
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
     dynamic_lib_suffix = "." + LINKERS[linker_info.type].default_shared_library_extension
     static_lib_suffix = "_p.a" if enable_profiling else ".a"
@@ -2197,6 +2205,23 @@ def make_haskell_link_group(
 
     pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None
 
+    # collect all the extra library dependencies from component Haskell libraries
+    direct_extra_libs = [elib for lib in hlibs for elib in lib.extra_libraries]
+    link_args = get_link_args_for_strategy(
+        ctx,
+        [
+            lib[GhcLinkableInfo].wrapped_info
+            for lib in direct_extra_libs
+            if GhcLinkableInfo in lib
+        ],
+        to_link_strategy(link_style),
+    )
+    extra_lib_dyns = [
+        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
+        for lib in direct_extra_libs
+        if GhcLinkableInfo in lib
+    ]
+
     actions.dynamic_output_new(_dynamic_link_group_shared(
         lib = lib.as_output(),
         db = db.as_output(),
@@ -2216,6 +2241,7 @@ def make_haskell_link_group(
         ),
         toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
         pkg_deps = pkg_deps,
+        extra_lib_dyns = extra_lib_dyns,
     ))
 
     return [
@@ -2240,20 +2266,8 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
     hlibs = [l.get(HaskellLibraryProvider).lib[link_style] for l in ctx.attrs.deps]
     direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos(ctx)]
 
-    # collect all the extra library dependencies from component Haskell libraries
-    direct_extra_libs = [elib for lib in hlibs for elib in lib.extra_libraries]
-    link_args = get_link_args_for_strategy(
-        ctx,
-        [
-            lib[GhcLinkableInfo].wrapped_info
-            for lib in direct_extra_libs
-            if GhcLinkableInfo in lib
-        ],
-        to_link_strategy(link_style),
-    )
-
     results = make_haskell_link_group(
-        ctx.actions,
+        ctx,
         label = ctx.label,
         hlibs = hlibs,
         direct_deps_info = direct_deps_info,
@@ -2262,7 +2276,6 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
         registerer = registerer,
         haskell_toolchain = haskell_toolchain,
         linker_info = linker_info,
-        link_args = link_args,
     )
     return results
 
