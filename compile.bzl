@@ -837,7 +837,10 @@ _IndexedPackageDeps = record(
 def _categorize_package_deps(
         *,
         module_name: str,
-        package_deps: dict[str, list[str]],
+        this_package_name: str,
+        package_deps: dict[str, dict[str, list[str]]], # `dict[modname, dict[pkgname, list[modname]]`
+        module_graph: dict[str, list[str]],
+        module_tsets: dict[str, CompiledModuleTSet],
         direct_deps_by_name: dict[str, _DirectDep],
         toolchain_deps_by_name: dict[str, None]) -> _IndexedPackageDeps:
     """
@@ -849,7 +852,8 @@ def _categorize_package_deps(
     exposed_package_modules = []
     exposed_package_dbs = []
 
-    for dep_pkgname, dep_modules in package_deps.items():
+    this_mod_package_deps = package_deps.get(module_name, {})
+    for dep_pkgname, dep_modules in this_mod_package_deps.items():
         if dep_pkgname in toolchain_deps_by_name:
             toolchain_deps.append(dep_pkgname)
         elif dep_pkgname in direct_deps_by_name:
@@ -862,6 +866,16 @@ def _categorize_package_deps(
                 exposed_package_modules.append(_direct_dep_compile_result(direct_dep).modules[dep_modname])
         else:
             fail("Unknown library dependency '{}' for module '{}'. Add the library to the `deps` attribute".format(dep_pkgname, module_name))
+
+    mod_deps = module_graph[module_name]
+
+    this_package_tsets = [module_tsets.get(mod_dep) for mod_dep in mod_deps if module_tsets.get(mod_dep)]
+
+    for tset in this_package_tsets:
+       for m in tset.traverse():
+           if m.package == this_package_name:
+               library_deps.extend(package_deps.get(m.name, {}).keys())
+    library_deps = dedupe(library_deps)
 
     return _IndexedPackageDeps(
         toolchain_deps = toolchain_deps,
@@ -1164,7 +1178,7 @@ def _compile_module(
         module_tsets: dict[str, CompiledModuleTSet],
         md_file: Artifact,
         graph: dict[str, list[str]],
-        package_deps: dict[str, list[str]],
+        package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
         outputs: dict[Artifact, OutputArtifact],
         artifact_suffix: str,
         direct_deps_by_name: dict[str, typing.Any],
@@ -1182,7 +1196,10 @@ def _compile_module(
 
     categorized_package_deps = _categorize_package_deps(
         module_name = module_name,
+        this_package_name = common_args.pkgname,
         package_deps = package_deps,
+        module_graph = graph,
+        module_tsets = module_tsets,
         direct_deps_by_name = direct_deps_by_name,
         toolchain_deps_by_name = toolchain_deps_by_name,
     )
@@ -1379,7 +1396,7 @@ def _compile_incr(
             module = module,
             module_tsets = module_tsets,
             graph = graph,
-            package_deps = package_deps.get(module_name, {}),
+            package_deps = package_deps,
             outputs = outputs,
             md_file = arg.md_file,
             artifact_suffix = arg.artifact_suffix,
@@ -1508,14 +1525,18 @@ def compile_args(
 def _make_module_tsets_non_incr(
         actions: AnalysisActions,
         module: _Module,
-        package_deps: dict[str, list[str]],
+        package_deps: dict[str, dict[str, list[str]]], # `dict[modname, dict[pkgname, list[modname]]`
+        module_graph: dict[str, list[str]],
         toolchain_deps_by_name: dict[str, None],
         direct_deps_by_name: dict[str, _DirectDep],
         name: str,
         pkgname: str) -> CompiledModuleTSet:
     categorized_package_deps = _categorize_package_deps(
         module_name = name,
+        this_package_name = pkgname,
         package_deps = package_deps,
+        module_graph = module_graph,
+        module_tsets = {},
         direct_deps_by_name = direct_deps_by_name,
         toolchain_deps_by_name = toolchain_deps_by_name,
     )
@@ -1589,7 +1610,8 @@ def _compile_non_incr(
         module_tsets[module_name] = _make_module_tsets_non_incr(
             actions,
             module = module,
-            package_deps = package_deps.get(module_name, {}),
+            package_deps = package_deps,
+            module_graph = graph,
             toolchain_deps_by_name = arg.toolchain_deps_by_name,
             direct_deps_by_name = direct_deps_by_name,
             name = module_name,
