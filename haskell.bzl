@@ -1044,7 +1044,16 @@ def _build_haskell_lib(
         # TODO: avoid making an archive for a single object, like cxx does
         # (but would that work with Template Haskell?)
         objs = [o for o in compiled.objects if o.extension != ".dyn_o"]
-        archive = make_archive(ctx, lib_short_path, objs)
+
+        # extra_libraries should be added as hidden deps.
+        extra_libs = []
+        for lib in ctx.attrs.extra_libraries:
+            if GhcLinkableInfo in lib:
+                xs = lib[GhcLinkableInfo].wrapped_info._infos[to_link_strategy(link_style)].traverse()
+                for x in xs:
+                    extra_libs.extend([l.lib for l in x.default.linkables])
+
+        archive = make_archive(ctx, lib_short_path, objs, hidden = extra_libs)
         lib = archive.artifact
         libs = [lib] + archive.external_objects
         link_infos = LinkInfos(
