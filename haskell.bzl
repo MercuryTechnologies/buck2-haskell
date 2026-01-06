@@ -529,7 +529,7 @@ _WritePackageConfOptions = record(
     artifact_suffix = str,
     srcs = list[typing.Any],
     strip_prefix = list[str],
-    haskell_toolchain = Provider, #HaskellToolchainInfo,
+    haskell_toolchain = HaskellToolchainInfo,
     registerer = RunInfo,
 )
 
@@ -762,7 +762,7 @@ def _get_haskell_shared_library_name_linker_flags(
 
 _DynamicLinkSharedOptions = record(
     artifact_suffix = str,
-    haskell_toolchain = Provider, #HaskellToolchainInfo,
+    haskell_toolchain = HaskellToolchainInfo,
     infos = LinkArgs,
     link_args = ArgLike,  # TODO: is this redundant with `infos`?
     haskell_direct_deps_lib_infos = list[HaskellLibraryInfo],
@@ -1534,7 +1534,7 @@ _DynamicLinkBinaryOptions = record(
     direct_deps_link_info = list[HaskellLinkInfo],
     enable_profiling = bool,
     haskell_direct_deps_lib_infos = list[HaskellLibraryInfo],
-    haskell_toolchain = Provider, #HaskellToolchainInfo,
+    haskell_toolchain = HaskellToolchainInfo,
     link_args = cmd_args,
     link_style = LinkStyle,
     linker_flags = list[typing.Any],  # Arguments.

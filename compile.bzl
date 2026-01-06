@@ -161,7 +161,7 @@ _DynamicDoCompileOptions = record(
     enable_profiling = bool,
     external_tool_paths = list[RunInfo],
     ghc_wrapper = RunInfo,
-    haskell_toolchain = Provider,  #HaskellToolchainInfo,
+    haskell_toolchain = HaskellToolchainInfo,
     label = Label,
     link_style = LinkStyle,
     link_args = ArgLike,
@@ -292,7 +292,7 @@ UnitParams = record(
     enable_haddock = field(bool),
     external_tool_paths = field(list[RunInfo]),
     artifact_suffix = field(str),
-    haskell_toolchain = field(Provider),  #field(HaskellToolchainInfo),
+    haskell_toolchain = field(HaskellToolchainInfo),
     compiler_flags = field(list[str | ResolvedStringWithMacros]),
 )
 
