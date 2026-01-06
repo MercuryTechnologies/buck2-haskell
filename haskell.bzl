@@ -1578,9 +1578,11 @@ def _dynamic_link_binary_impl(
             link_cmd_hidden.append(item.libs)
 
     # link group
-    for lg in arg.link_group_libs:
-        link_args.add("-package", lg.pkgname)
-        link_cmd_hidden.append(lg.lib)
+    # NOTE: link group for executable is currently only relevant to LinkStyle("shared")
+    if arg.link_style == LinkStyle("shared"):
+        for lg in arg.link_group_libs:
+            link_args.add("-package", lg.pkgname)
+            link_cmd_hidden.append(lg.lib)
 
     link_args.add(arg.haskell_toolchain.linker_flags)
     link_args.add(arg.linker_flags)
