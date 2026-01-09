@@ -784,6 +784,7 @@ _DynamicLinkSharedOptions = record(
 def _dynamic_link_shared_impl(
         actions: AnalysisActions,
         pkg_deps: ResolvedDynamicValue,
+        extra_libs: list[Artifact],
         extra_lib_dyns: list[ResolvedDynamicValue],
         lib: OutputArtifact,
         arg: _DynamicLinkSharedOptions) -> list[Provider]:
@@ -825,6 +826,9 @@ def _dynamic_link_shared_impl(
             link_args.add(cmd_args(item.name, prepend = "-package"))
 
     link_args.add(cmd_args(package_db_tset.project_as_args("package_db"), prepend = "-package-db"))
+
+    # extra libraries
+    link_cmd_hidden.extend(extra_libs)
 
     # link group
     for lg in arg.link_group_libs:
@@ -879,9 +883,25 @@ _dynamic_link_shared = dynamic_actions(
         "arg": dynattrs.value(typing.Any),
         "lib": dynattrs.output(),
         "pkg_deps": dynattrs.dynamic_value(),
+        "extra_libs": dynattrs.value(typing.Any),
         "extra_lib_dyns": dynattrs.list(dynattrs.dynamic_value()),
     },
 )
+
+# Get list of extra library artifacts and dynamic value associated with them
+def _get_extra_lib_artifacts(ctx: AnalysisContext, link_style: LinkStyle):
+    extra_libs = []
+    for lib in ctx.attrs.extra_libraries:
+        if GhcLinkableInfo in lib:
+            xs = lib[GhcLinkableInfo].wrapped_info._infos[to_link_strategy(link_style)].traverse()
+            for x in xs:
+                extra_libs.extend([l.lib for l in x.default.linkables])
+    extra_lib_dyns = [
+        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
+        for lib in ctx.attrs.extra_libraries
+        if GhcLinkableInfo in lib
+    ]
+    return extra_libs, extra_lib_dyns
 
 def _build_haskell_lib(
         ctx: AnalysisContext,
@@ -944,11 +964,7 @@ def _build_haskell_lib(
     project_libs_full = attr_deps_haskell_lib_infos(ctx, link_style, enable_profiling)
 
     # extra-libraries
-    extra_lib_dyns = [
-        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
-        for lib in ctx.attrs.extra_libraries
-        if GhcLinkableInfo in lib
-    ]
+    extra_libs, extra_lib_dyns = _get_extra_lib_artifacts(ctx, link_style)
 
     link_args = unpack_link_args(get_link_args_for_strategy(
         ctx,
@@ -959,6 +975,7 @@ def _build_haskell_lib(
         ],
         to_link_strategy(link_style),
     ))
+
 
     if link_style == LinkStyle("shared"):
         lib = ctx.actions.declare_output(lib_short_path)
@@ -987,6 +1004,7 @@ def _build_haskell_lib(
 
         ctx.actions.dynamic_output_new(_dynamic_link_shared(
             pkg_deps = haskell_toolchain.packages.dynamic,
+            extra_libs = extra_libs,
             extra_lib_dyns = extra_lib_dyns,
             lib = lib.as_output(),
             arg = _DynamicLinkSharedOptions(
@@ -1044,14 +1062,6 @@ def _build_haskell_lib(
         # TODO: avoid making an archive for a single object, like cxx does
         # (but would that work with Template Haskell?)
         objs = [o for o in compiled.objects if o.extension != ".dyn_o"]
-
-        # extra_libraries should be added as hidden deps.
-        extra_libs = []
-        for lib in ctx.attrs.extra_libraries:
-            if GhcLinkableInfo in lib:
-                xs = lib[GhcLinkableInfo].wrapped_info._infos[to_link_strategy(link_style)].traverse()
-                for x in xs:
-                    extra_libs.extend([l.lib for l in x.default.linkables])
 
         archive = make_archive(ctx, lib_short_path, objs, hidden = extra_libs)
         lib = archive.artifact
