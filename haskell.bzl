@@ -531,6 +531,7 @@ _WritePackageConfOptions = record(
     strip_prefix = list[str],
     haskell_toolchain = HaskellToolchainInfo,
     registerer = RunInfo,
+    extra_libs = list[Artifact],
 )
 
 def _write_package_conf_impl(
@@ -601,7 +602,7 @@ def _write_package_conf_impl(
         conf.add(cmd_args(cmd_args(library_dirs, delimiter = ","), format = "library-dirs: {}"))
         conf.add(cmd_args(libname, format = "hs-libraries: {}"))
 
-    extra_ld_opts = cmd_args()
+    extra_ld_opts = cmd_args(hidden = arg.extra_libs)
     # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
     for dyn in extra_lib_dyns:
         fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
@@ -614,7 +615,7 @@ def _write_package_conf_impl(
         extra_ld_opts = extra_ld_opts,
     )
 
-    pkg_conf_artifact = actions.write(pkg_conf, conf)
+    pkg_conf_artifact = actions.write(pkg_conf, conf, with_inputs = True)
 
     _register_package_conf(
         actions,
@@ -697,6 +698,11 @@ def _make_package(
         ),
     ])
 
+    toolchain_libs = attr_deps_haskell_toolchain_libraries(ctx)
+    toolchain_lib_dyn_infos = [dep.dynamic for dep in toolchain_libs]
+
+    extra_libs, extra_lib_dyns = _get_extra_lib_artifacts(ctx, link_style)
+
     arg = _WritePackageConfOptions(
         for_deps = for_deps,
         profiling = profiling,
@@ -712,17 +718,8 @@ def _make_package(
         strip_prefix = ctx.attrs.strip_prefix,
         haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo],
         registerer = ctx.attrs._ghc_pkg_registerer[RunInfo],
+        extra_libs = extra_libs,
     )
-
-    toolchain_libs = attr_deps_haskell_toolchain_libraries(ctx)
-    toolchain_lib_dyn_infos = [dep.dynamic for dep in toolchain_libs]
-
-    # extra-libraries
-    extra_lib_dyns = [
-        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
-        for lib in ctx.attrs.extra_libraries
-        if GhcLinkableInfo in lib
-    ]
 
     ctx.actions.dynamic_output_new(
         _write_package_conf(
