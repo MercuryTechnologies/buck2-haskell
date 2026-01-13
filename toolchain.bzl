@@ -50,7 +50,6 @@ HaskellToolchainInfo = provider(
         "packages": provider_field(HaskellPackagesInfo | None, default = None),
         "use_persistent_workers": provider_field(bool, default = False),
         "use_worker": provider_field(bool, default = False),
-        "worker_make": provider_field(bool, default = False),
         "ghc_dir": provider_field(Artifact | None, default = None),
         # RTS options passed to GHC, changing the behavior of the compiler process, not the resulting binaries like
         # `-with-rtsopts` would.

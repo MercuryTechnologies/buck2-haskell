@@ -454,7 +454,7 @@ def _dynamic_target_metadata_impl(
 
     md_args.add("--source-prefix", arg.strip_prefix)
 
-    if arg.allow_worker and haskell_toolchain.use_worker and haskell_toolchain.worker_make:
+    if arg.allow_worker and haskell_toolchain.use_worker:
         md_args.add(arg.lib_package_name_and_prefix)
 
     md_args.add("--output", output)
@@ -469,7 +469,7 @@ def _dynamic_target_metadata_impl(
     md_args.add(buck2_args)
     md_args.add("--unit-buck-args", buck_args_file)
 
-    if arg.allow_worker and haskell_toolchain.use_worker and haskell_toolchain.worker_make:
+    if arg.allow_worker and haskell_toolchain.use_worker:
         build_plan = actions.declare_output(unit.name + ".depends.json")
         makefile = actions.declare_output(unit.name + ".depends.make")
 
@@ -486,7 +486,7 @@ def _dynamic_target_metadata_impl(
     )
     md_args.add("--unit-args", ghc_args_file)
 
-    if arg.allow_worker and haskell_toolchain.use_worker and haskell_toolchain.worker_make:
+    if arg.allow_worker and haskell_toolchain.use_worker:
         bp_args = cmd_args()
         bp_args.add("-M")
         bp_args.add("--ghc-dir", haskell_toolchain.ghc_dir)
@@ -746,7 +746,7 @@ def add_worker_args(
         haskell_toolchain: HaskellToolchainInfo,
         command: cmd_args,
         pkgname: str) -> None:
-    command.add("--worker-target-id", "singleton" if haskell_toolchain.worker_make else to_hash(pkgname))
+    command.add("--worker-target-id", "singleton")
 
 def make_package_env(
         *,
@@ -768,7 +768,7 @@ def make_package_env(
         "env",
     ]))
     package_env = cmd_args(delimiter = "\n")
-    if not (allow_worker and haskell_toolchain.use_worker and haskell_toolchain.worker_make):
+    if not (allow_worker and haskell_toolchain.use_worker):
         package_env.add(cmd_args(
             packagedb_args,
             format = "package-db {}",
@@ -901,7 +901,6 @@ def _common_compile_module_args(
         direct_deps_by_name: dict[str, _DirectDep],
         pkg_deps: ResolvedDynamicValue | None) -> CommonCompileModuleArgs:
     use_worker = arg.allow_worker and arg.haskell_toolchain.use_worker
-    worker_make = use_worker and arg.haskell_toolchain.worker_make
 
     unit_params = UnitParams(
         name = arg.pkgname,
@@ -934,7 +933,7 @@ def _common_compile_module_args(
     # These arguments are not intended for GHC, but for either `ghc_wrapper` or the worker.
     command = _common_compile_wrapper_args(arg.ghc_wrapper, arg.haskell_toolchain, arg.pkgname, use_worker)
 
-    if not worker_make:
+    if not use_worker:
         # Some rules pass in RTS (e.g. `+RTS ... -RTS`) options for GHC, which can't
         # be parsed when inside an argsfile.
         add_rts_flags(oneshot_wrapper_args, arg.haskell_toolchain.ghc_rts_flags)
@@ -948,7 +947,7 @@ def _common_compile_module_args(
     pre_args = pre.set.project_as_args("args")
     args_for_file.add(cmd_args(pre_args, format = "-optP={}"))
 
-    if worker_make:
+    if use_worker:
         package_env_args = cmd_args()
     else:
         # Add -package-db and -package/-expose-package flags for each Haskell
@@ -1006,7 +1005,7 @@ def _common_compile_module_args(
     # target-level dependencies. needed for non-incremental build.
     target_deps_args = cmd_args()
 
-    if not worker_make:
+    if not use_worker:
         for pkg in arg.toolchain_deps_by_name:
             target_deps_args.add(cmd_args(pkg, prepend = "-package"))
 
@@ -1189,7 +1188,6 @@ def _compile_module(
         allow_worker: bool,
         allow_cache_upload: bool) -> CompiledModuleTSet:
     use_worker = allow_worker and haskell_toolchain.use_worker
-    worker_make = use_worker and haskell_toolchain.worker_make
 
     abi_tag = actions.artifact_tag()
     packagedb_tag = actions.artifact_tag()
@@ -1237,7 +1235,7 @@ def _compile_module(
 
     # For the make worker, options related to local package dependencies need to be omitted entirely, since it uses the
     # unit env instead of package DBs to load them.
-    if worker_make:
+    if use_worker:
         wrapper_args_for_file.add(_compile_make_args(
             actions,
             common_args = common_args,
