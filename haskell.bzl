@@ -603,6 +603,7 @@ def _write_package_conf_impl(
         conf.add(cmd_args(libname, format = "hs-libraries: {}"))
 
     extra_ld_opts = cmd_args(hidden = arg.extra_libs)
+
     # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
     for dyn in extra_lib_dyns:
         fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
@@ -972,7 +973,6 @@ def _build_haskell_lib(
         ],
         to_link_strategy(link_style),
     ))
-
 
     if link_style == LinkStyle("shared"):
         lib = ctx.actions.declare_output(lib_short_path)
@@ -2044,8 +2044,7 @@ def _dynamic_link_group_shared_impl(
         arg: _DynamicLinkGroupSharedOptions,
         toolchain_lib_dyn_infos: list[ResolvedDynamicValue],
         pkg_deps: ResolvedDynamicValue | None,
-        extra_lib_dyns: list[ResolvedDynamicValue],
-    ):
+        extra_lib_dyns: list[ResolvedDynamicValue]):
     link_cmd_hidden = []
 
     link_args = cmd_args()
@@ -2087,6 +2086,7 @@ def _dynamic_link_group_shared_impl(
             link_args.add(o)
 
     link_args.add(unpack_link_args(arg.link_args))
+
     # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
     for dyn in extra_lib_dyns:
         fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
