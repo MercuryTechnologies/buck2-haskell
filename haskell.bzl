@@ -829,6 +829,12 @@ def _dynamic_link_shared_impl(
     # extra libraries
     link_cmd_hidden.extend(extra_libs)
 
+    # Ensure that Buck2 knows we need all of the transitive library
+    # dependencies built before we can run this link command.
+    link_cmd_hidden.append(
+        actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info).project_as_args("libs"),
+    )
+
     # link group
     for lg in arg.link_group_libs:
         link_args.add("-package", lg.pkgname)
@@ -1579,6 +1585,12 @@ def _dynamic_link_binary_impl(
         for lg in arg.link_group_libs:
             link_args.add("-package", lg.pkgname)
             link_cmd_hidden.append(lg.lib)
+
+    # Ensure that Buck2 knows we need all of the transitive library
+    # dependencies built before we can run this link command.
+    link_cmd_hidden.append(
+        actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info).project_as_args("libs"),
+    )
 
     link_args.add(arg.haskell_toolchain.linker_flags)
     link_args.add(arg.linker_flags)
