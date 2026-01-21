@@ -77,6 +77,9 @@ def _project_as_empty_package_db(lib: HaskellLibraryInfo) -> cmd_args:
 def _project_as_deps_package_db(lib: HaskellLibraryInfo) -> cmd_args:
     return cmd_args(lib.deps_db)
 
+def _project_as_libs(lib: HaskellLibraryInfo) -> cmd_args:
+    return cmd_args(lib.libs)
+
 def _get_package_deps(children: list[list[str]], lib: HaskellLibraryInfo | None) -> list[str]:
     flatted = flatten(children)
     if lib:
@@ -104,6 +107,7 @@ HaskellLibraryInfoTSet = transitive_set(
         "package_db": _project_as_package_db,
         "empty_package_db": _project_as_empty_package_db,
         "deps_package_db": _project_as_deps_package_db,
+        "libs": _project_as_libs,
     },
     reductions = {
         "packages": _get_package_deps,
