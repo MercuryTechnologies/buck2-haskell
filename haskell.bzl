@@ -822,6 +822,7 @@ def _dynamic_link_shared_impl(
     for item in arg.haskell_direct_deps_lib_infos:
         if not item.id in all_link_group_ids:
             link_args.add(cmd_args(item.name, prepend = "-package"))
+            link_cmd_hidden.extend(item.libs)
 
     link_args.add(cmd_args(package_db_tset.project_as_args("package_db"), prepend = "-package-db"))
 
