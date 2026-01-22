@@ -17,7 +17,7 @@ load(":haskell_ghci.bzl", "haskell_ghci_impl")
 load(":haskell_haddock.bzl", "haskell_haddock_impl")
 load(":haskell_ide.bzl", "haskell_ide_impl")
 load(":library_info.bzl", "HaskellLibraryProvider")
-load(":toolchain.bzl","haskell_toolchain")
+load(":toolchain.bzl", "haskell_toolchain")
 
 def _srcs_arg():
     return {
@@ -77,13 +77,12 @@ def _scripts_arg():
         "_worker": attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None),
     }
 
-
 def _validate_src_arg():
     return {
         "validate_src": attrs.option(
-            attrs.dep(providers=[RunInfo]),
-            default=None,
-            doc="""
+            attrs.dep(providers = [RunInfo]),
+            default = None,
+            doc = """
     An optional program which is invoked once per source file in order to
     perform any validations you might want to perform, such as checking that all
     srcs are Haskell source files, or checking that module names match file
@@ -115,8 +114,8 @@ def _validate_src_arg():
     provided, all srcs *must* be validated by the provided program before any
     other actions can begin. This means that this step is not suitable for
     general validations such as linting. Use it sparingly, if at all!
-"""
-        )
+""",
+        ),
     }
 
 def _external_tools_arg():
@@ -449,8 +448,8 @@ haskell_toolchain_library = rule(
         "_haskell_toolchain": haskell_toolchain(),
         "_generate_toolchain_lib_metadata": attrs.dep(
             providers = [RunInfo],
-            default = "@buck2-haskell//tools:generate_toolchain_lib_metadata"
-        )
+            default = "@buck2-haskell//tools:generate_toolchain_lib_metadata",
+        ),
     },
 )
 
