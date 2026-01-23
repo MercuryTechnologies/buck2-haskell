@@ -127,6 +127,7 @@ CompileResultInfo = record(
 PackagesInfo = record(
     exposed_package_args = cmd_args,
     packagedb_args = cmd_args,
+    local_packagedb_args = cmd_args,
     transitive_deps = field(HaskellLibraryInfoTSet),
 )
 
@@ -358,6 +359,7 @@ MetadataUnitParams = record(
     unit = field(UnitParams),
     toolchain_libs = field(list[str]),
     deps = field(list[Dependency]),
+    use_worker = field(bool),
 )
 
 def metadata_unit_args(
@@ -378,7 +380,10 @@ def metadata_unit_args(
     package_flag = _package_flag(arg.unit.haskell_toolchain)
     ghc_args.add(cmd_args(arg.toolchain_libs, prepend = package_flag))
 
-    ghc_args.add(cmd_args(packages_info.exposed_package_args))
+    if not arg.use_worker:
+        ghc_args.add(cmd_args(packages_info.local_packagedb_args, prepend="-package-db"))
+
+    ghc_args.add(cmd_args(packages_info.exposed_package_args, hidden = packages_info.local_packagedb_args))
     ghc_args.add(cmd_args(packages_info.packagedb_args, prepend = "-package-db"))
     ghc_args.add("-fprefer-byte-code")
     ghc_args.add("-fpackage-db-byte-code")
@@ -447,6 +452,7 @@ def _dynamic_target_metadata_impl(
         use_empty_lib = True,
         for_deps = True,
         pkg_deps = pkg_deps,
+        use_worker = arg.unit.use_worker,
     )
     package_flag = _package_flag(haskell_toolchain)
 
@@ -616,6 +622,7 @@ def target_metadata(
                 ),
                 toolchain_libs = toolchain_libs,
                 deps = ctx.attrs.deps,
+                use_worker = ctx.attrs.allow_worker and haskell_toolchain.use_worker
             ),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
@@ -675,7 +682,8 @@ def get_packages_info(
         enable_profiling: bool,
         use_empty_lib: bool,
         pkg_deps: ResolvedDynamicValue | None,
-        for_deps: bool = False) -> PackagesInfo:
+        for_deps: bool = False,
+        use_worker: bool = False) -> PackagesInfo:
     # Collect library dependencies. Note that these don't need to be in a
     # particular order.
     libs = actions.tset(
@@ -697,6 +705,7 @@ def get_packages_info(
     else:
         get_db = lambda l: l.db
 
+    local_packagedb_args = cmd_args()
     packagedb_args = cmd_args()
     packagedb_set = {}
 
@@ -730,9 +739,11 @@ def get_packages_info(
 
     # These we need to add for all the packages/dependencies, i.e.
     # direct and transitive (e.g. `fbcode-common-hs-util-hs-array`)
-    packagedb_args.add(packagedb_set.keys())
+    local_packagedb_args.add(packagedb_set.keys())
 
     packagedb_args.add(package_db_tset.project_as_args("package_db"))
+
+    local_package_flag = "-package-id" if use_worker else "-package"
 
     # Expose only the packages we depend on directly
     for lib in haskell_direct_deps_lib_infos:
@@ -740,10 +751,11 @@ def get_packages_info(
         if (specify_pkg_version):
             pkg_name += "-{}".format(lib.version)
 
-        exposed_package_args.add(package_flag, pkg_name)
+        exposed_package_args.add(local_package_flag, pkg_name)
 
     return PackagesInfo(
         exposed_package_args = exposed_package_args,
+        local_packagedb_args = local_packagedb_args,
         packagedb_args = packagedb_args,
         transitive_deps = libs,
         #bin_paths = bin_paths,
