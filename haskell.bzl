@@ -847,6 +847,10 @@ def _dynamic_link_shared_impl(
             _get_haskell_shared_library_name_linker_flags(arg.linker_info.type, arg.libfile),
             prepend = "-optl",
         ),
+        arg.objects,
+        arg.link_args,
+        "-o",
+        lib,
     )
 
     # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
@@ -854,11 +858,7 @@ def _dynamic_link_shared_impl(
         fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
         link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}"), prepend = "-optl"))
 
-    link_args.add(arg.objects)
-
     link_cmd_hidden.append(unpack_link_args(arg.infos))
-
-    link_args.add(arg.link_args)
 
     link_cmd = cmd_args(
         arg.haskell_toolchain.linker,
@@ -868,8 +868,6 @@ def _dynamic_link_shared_impl(
             args = link_args,
             allow_args = True,
         ),
-        "-o",
-        lib,
         hidden = link_cmd_hidden,
     )
 
@@ -2112,6 +2110,8 @@ def _dynamic_link_group_shared_impl(
             _get_haskell_shared_library_name_linker_flags(arg.linker_info.type, arg.libfile),
             prepend = "-optl",
         ),
+        "-o",
+        lib,
     )
 
     link_cmd = cmd_args(
@@ -2122,8 +2122,6 @@ def _dynamic_link_group_shared_impl(
             args = link_args,
             allow_args = True,
         ),
-        "-o",
-        lib,
         hidden = link_cmd_hidden,
     )
 
