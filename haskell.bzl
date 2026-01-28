@@ -691,9 +691,8 @@ def _make_package(
         get_link_args_for_strategy(
             ctx,
             [
-                lib[GhcLinkableInfo].wrapped_info
+                lib[MergedLinkInfo]
                 for lib in ctx.attrs.extra_libraries
-                if GhcLinkableInfo in lib
             ],
             to_link_strategy(link_style),
         ),
@@ -895,14 +894,12 @@ _dynamic_link_shared = dynamic_actions(
 def _get_extra_lib_artifacts(ctx: AnalysisContext, link_style: LinkStyle):
     extra_libs = []
     for lib in ctx.attrs.extra_libraries:
-        if GhcLinkableInfo in lib:
-            xs = lib[GhcLinkableInfo].wrapped_info._infos[to_link_strategy(link_style)].traverse()
-            for x in xs:
-                extra_libs.extend([l.lib for l in x.default.linkables])
+        xs = lib[MergedLinkInfo]._infos[to_link_strategy(link_style)].traverse()
+        for x in xs:
+            extra_libs.extend([l.lib for l in x.default.linkables])
     extra_lib_dyns = [
         lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
         for lib in ctx.attrs.extra_libraries
-        if GhcLinkableInfo in lib
     ]
     return extra_libs, extra_lib_dyns
 
@@ -972,9 +969,8 @@ def _build_haskell_lib(
     link_args = unpack_link_args(get_link_args_for_strategy(
         ctx,
         [
-            lib[GhcLinkableInfo].wrapped_info
+            lib[MergedLinkInfo]
             for lib in ctx.attrs.extra_libraries
-            if GhcLinkableInfo in lib
         ],
         to_link_strategy(link_style),
     ))
@@ -1701,9 +1697,8 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     link_args.add(unpack_link_args(get_link_args_for_strategy(
         ctx,
         [
-            lib[GhcLinkableInfo]
+            lib[MergedLinkInfo]
             for lib in ctx.attrs.extra_libraries
-            if GhcLinkableInfo in lib
         ],
         to_link_strategy(link_style),
     )))
@@ -2220,10 +2215,13 @@ def make_haskell_link_group(
     direct_extra_libs = [elib for lib in hlibs for elib in lib.extra_libraries]
     link_args = get_link_args_for_strategy(
         ctx,
+        # These attributes will always have `MergedLinkInfo` and
+        # `GhcLinkableInfo` providers, but the type system doesn't guarantee
+        # that statically, so let's just be safe.
         [
-            lib[GhcLinkableInfo].wrapped_info
+            lib[MergedLinkInfo]
             for lib in direct_extra_libs
-            if GhcLinkableInfo in lib
+            if MergedLinkInfo in lib
         ],
         to_link_strategy(link_style),
     )

@@ -3,6 +3,7 @@ load("@prelude//decls:common.bzl", "LinkableDepType", "buck")
 load("@prelude//decls:native_common.bzl", "native_common")
 load("@prelude//decls:re_test_common.bzl", "re_test_common")
 load("@prelude//decls/toolchains_common.bzl", "toolchains_common")
+load("@prelude//linking:link_info.bzl", "MergedLinkInfo")
 load("@prelude//linking:types.bzl", "Linkage")
 load(
     ":haskell.bzl",
@@ -17,6 +18,7 @@ load(":haskell_ghci.bzl", "haskell_ghci_impl")
 load(":haskell_haddock.bzl", "haskell_haddock_impl")
 load(":haskell_ide.bzl", "haskell_ide_impl")
 load(":library_info.bzl", "HaskellLibraryProvider")
+load(":link_info.bzl", "GhcLinkableInfo")
 load(":toolchain.bzl", "haskell_toolchain")
 
 def _srcs_arg():
@@ -148,7 +150,7 @@ def _strip_prefix_arg():
 
 def _extra_libraries_arg():
     return {
-        "extra_libraries": attrs.list(attrs.dep(), default = [], doc = """
+        "extra_libraries": attrs.list(attrs.dep(providers = [GhcLinkableInfo, MergedLinkInfo]), default = [], doc = """
     Non-Haskell deps (C/C++ libraries)
 """),
     }
