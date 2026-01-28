@@ -12,7 +12,6 @@ load(
 load(
     "@prelude//linking:link_info.bzl",
     "LinkStyle",
-     "MergedLinkInfo",
 )
 load("@prelude//utils:arglike.bzl", "ArgLike")
 load(
@@ -66,5 +65,4 @@ ExtraGhcLinkerFlagsInfo = provider(fields = {
 
 GhcLinkableInfo = provider(fields = {
     "extra_ghc_linker_flags_dynamic": DynamicValue,
-    "wrapped_info": MergedLinkInfo,
 })
