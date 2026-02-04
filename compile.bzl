@@ -175,6 +175,7 @@ _DynamicDoCompileOptions = record(
     toolchain_deps_by_name = dict[str, None],
     worker = WorkerInfo | None,
     allow_worker = bool,
+    is_worker_execute = bool,
     allow_cache_upload = bool,
     link_group_libs = list[HaskellLinkGroupInfo],
 )
@@ -188,6 +189,7 @@ def _modules_by_name(
         ctx: AnalysisContext,
         *,
         sources: list[Artifact],
+        is_worker_execute: bool,
         link_style: LinkStyle,
         enable_profiling: bool,
         suffix: str,
@@ -239,7 +241,7 @@ def _modules_by_name(
         else:
             hash = None
 
-        if link_style in [LinkStyle("static"), LinkStyle("static_pic")]:
+        if link_style in [LinkStyle("static"), LinkStyle("static_pic")] and not is_worker_execute:
             dyn_osuf, dyn_hisuf = output_extensions(LinkStyle("shared"), enable_profiling)
             interface_path = paths.replace_extension(short_path_stripped, "." + dyn_hisuf + bootsuf)
             interface = ctx.actions.declare_output("mod-" + suffix, interface_path)
@@ -294,10 +296,11 @@ UnitParams = record(
     artifact_suffix = field(str),
     haskell_toolchain = field(HaskellToolchainInfo),
     compiler_flags = field(list[str | ResolvedStringWithMacros]),
+    is_worker_execute = field(bool),
 )
 
-def _add_dynamic_too_if_required(link_style: LinkStyle, args: cmd_args) -> bool:
-    if link_style in [LinkStyle("static_pic"), LinkStyle("static")]:
+def _add_dynamic_too_if_required(is_worker_execute: bool, link_style: LinkStyle, args: cmd_args) -> bool:
+    if link_style in [LinkStyle("static_pic"), LinkStyle("static")] and not is_worker_execute:
         args.add("-dynamic-too")
         return True
     else:
@@ -328,7 +331,7 @@ def unit_ghc_args(actions: AnalysisActions, arg: UnitParams) -> cmd_args:
     elif arg.link_style == LinkStyle("static_pic"):
         args.add("-fPIC", "-fexternal-dynamic-refs")
 
-    _add_dynamic_too_if_required(arg.link_style, args)
+    _add_dynamic_too_if_required(arg.is_worker_execute, arg.link_style, args)
 
     args.add("-fbyte-code-and-object-code")
 
@@ -427,7 +430,7 @@ def _dynamic_target_metadata_impl(
     unit = munit.unit
     haskell_toolchain = unit.haskell_toolchain
 
-    is_worker_execute = arg.allow_worker and haskell_toolchain.use_worker
+    is_worker_execute = arg.unit.unit.is_worker_execute
 
     # Add -package-db and -package/-expose-package flags for each Haskell
     # library dependency.
@@ -575,6 +578,9 @@ def target_metadata(
     pkgname = libname.replace("_", "-")
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
+    allow_worker = ctx.attrs.allow_worker
+    is_worker_execute = allow_worker and haskell_toolchain.use_worker
+
     toolchain_libs = [dep.name for dep in attr_deps_haskell_toolchain_libraries(ctx)]
 
     haskell_direct_deps_lib_infos = attr_deps_haskell_lib_infos(
@@ -606,6 +612,7 @@ def target_metadata(
                     artifact_suffix = get_artifact_suffix(link_style, enable_profiling),
                     haskell_toolchain = haskell_toolchain,
                     compiler_flags = ctx.attrs.compiler_flags,
+                    is_worker_execute = is_worker_execute,
                 ),
                 toolchain_libs = toolchain_libs,
                 deps = ctx.attrs.deps,
@@ -621,7 +628,7 @@ def target_metadata(
             # ghc should be run with the cell root as working directory
             cell_root = ctx.label.cell_root,
             worker = worker,
-            allow_worker = ctx.attrs.allow_worker,
+            allow_worker = allow_worker,
             allow_cache_upload = ctx.attrs.allow_cache_upload,
             label = ctx.label,
             incremental = ctx.attrs.incremental,
@@ -912,7 +919,7 @@ def _common_compile_module_args(
         incremental: bool,
         direct_deps_by_name: dict[str, _DirectDep],
         pkg_deps: ResolvedDynamicValue | None) -> CommonCompileModuleArgs:
-    is_worker_execute = arg.allow_worker and arg.haskell_toolchain.use_worker
+    is_worker_execute = arg.is_worker_execute
 
     unit_params = UnitParams(
         name = arg.pkgname,
@@ -924,6 +931,7 @@ def _common_compile_module_args(
         artifact_suffix = get_artifact_suffix(arg.link_style, arg.enable_profiling),
         haskell_toolchain = arg.haskell_toolchain,
         compiler_flags = arg.compiler_flags,
+        is_worker_execute = is_worker_execute,
     )
 
     non_haskell_sources = [
@@ -1038,6 +1046,7 @@ def _common_compile_module_args(
 def _compile_oneshot_args(
         actions: AnalysisActions,
         common_args: CommonCompileModuleArgs,
+        is_worker_execute: bool,
         link_style: LinkStyle,
         link_args: ArgLike,
         enable_th: bool,
@@ -1072,7 +1081,7 @@ def _compile_oneshot_args(
         stubs = outputs[module.stub_dir]
         args.add("-stubdir", stubs)
 
-    is_dynamic_too_added = _add_dynamic_too_if_required(link_style, args)
+    is_dynamic_too_added = _add_dynamic_too_if_required(is_worker_execute, link_style, args)
     if is_dynamic_too_added:
         args.add("-dyno", objects[1])
         args.add("-dynohi", his[1])
@@ -1281,6 +1290,7 @@ def _compile_module(
         compile_args_for_file.add(_compile_oneshot_args(
             actions,
             common_args = common_args,
+            is_worker_execute = is_worker_execute,
             link_style = link_style,
             link_args = link_args,
             enable_th = enable_th,
@@ -1431,6 +1441,7 @@ def compile_args(
         sources: list[typing.Any],  # Source.
         external_tool_paths: list[RunInfo],
         link_style: LinkStyle,
+        is_worker_execute: bool,
         link_args: ArgLike,
         enable_profiling: bool,
         direct_deps_link_info: list[HaskellLinkInfo],
@@ -1468,7 +1479,7 @@ def compile_args(
     elif link_style == LinkStyle("static_pic"):
         args.add("-fPIC", "-fexternal-dynamic-refs")
 
-    _add_dynamic_too_if_required(link_style, args)
+    _add_dynamic_too_if_required(is_worker_execute, link_style, args)
 
     osuf, hisuf = output_extensions(link_style, enable_profiling)
     args.add("-osuf", osuf, "-hisuf", hisuf)
@@ -1604,6 +1615,7 @@ def _compile_non_incr(
             sources = arg.sources,
             external_tool_paths = arg.external_tool_paths,
             link_style = link_style,
+            is_worker_execute = False, # non-incr build is always non-worker.
             link_args = arg.link_args,
             direct_deps_link_info = arg.direct_deps_link_info,
             haskell_direct_deps_lib_infos = arg.haskell_direct_deps_lib_infos,
@@ -1733,16 +1745,19 @@ def compile(
         is_haskell_binary: bool = False) -> CompileResultInfo:
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
+    haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
+    is_worker_execute = ctx.attrs.allow_worker and haskell_toolchain.use_worker
+
     modules = _modules_by_name(
         ctx,
         sources = ctx.attrs.srcs,
+        is_worker_execute = is_worker_execute,
         link_style = link_style,
         enable_profiling = enable_profiling,
         suffix = artifact_suffix,
         module_prefix = ctx.attrs.module_prefix,
         is_haskell_binary = is_haskell_binary,
     )
-    haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
 
     interfaces = [interface for module in modules.values() for interface in module.interfaces]
     objects = [object for module in modules.values() for object in module.objects]
@@ -1785,6 +1800,8 @@ def compile(
         to_link_strategy(link_style),
     ))
 
+    is_worker_execute = ctx.attrs.allow_worker and haskell_toolchain.use_worker
+
     dyn_module_tsets = ctx.actions.dynamic_output_new(_dynamic_do_compile(
         incremental = incremental,
         md_file = md_file,
@@ -1821,6 +1838,7 @@ def compile(
             toolchain_deps_by_name = toolchain_deps_by_name,
             worker = worker,
             allow_worker = ctx.attrs.allow_worker,
+            is_worker_execute = is_worker_execute,
             allow_cache_upload = ctx.attrs.allow_cache_upload,
             link_group_libs = attr_deps_haskell_link_group_infos(ctx),
         ),
