@@ -427,6 +427,8 @@ def _dynamic_target_metadata_impl(
     unit = munit.unit
     haskell_toolchain = unit.haskell_toolchain
 
+    is_worker_execute = arg.allow_worker and haskell_toolchain.use_worker
+
     # Add -package-db and -package/-expose-package flags for each Haskell
     # library dependency.
 
@@ -460,7 +462,7 @@ def _dynamic_target_metadata_impl(
 
     md_args.add("--source-prefix", arg.strip_prefix)
 
-    if arg.allow_worker and haskell_toolchain.use_worker:
+    if is_worker_execute:
         md_args.add(arg.lib_package_name_and_prefix)
 
     md_args.add("--output", output)
@@ -475,7 +477,7 @@ def _dynamic_target_metadata_impl(
     md_args.add(buck2_args)
     md_args.add("--unit-buck-args", buck_args_file)
 
-    if arg.allow_worker and haskell_toolchain.use_worker:
+    if is_worker_execute:
         build_plan = actions.declare_output(unit.name + ".depends.json")
         makefile = actions.declare_output(unit.name + ".depends.make")
 
@@ -492,7 +494,7 @@ def _dynamic_target_metadata_impl(
     )
     md_args.add("--unit-args", ghc_args_file)
 
-    if arg.allow_worker and haskell_toolchain.use_worker:
+    if is_worker_execute:
         dep_units = transitive_metadata(actions, unit.name, packages_info)
         bp_args = cmd_args()
         bp_args.add("-M")
@@ -776,7 +778,9 @@ def make_package_env(
         "env",
     ]))
     package_env = cmd_args(delimiter = "\n")
-    if not (allow_worker and haskell_toolchain.use_worker):
+
+    is_worker_execute = allow_worker and haskell_toolchain.use_worker
+    if not is_worker_execute:
         package_env.add(cmd_args(
             packagedb_args,
             format = "package-db {}",
@@ -908,7 +912,7 @@ def _common_compile_module_args(
         incremental: bool,
         direct_deps_by_name: dict[str, _DirectDep],
         pkg_deps: ResolvedDynamicValue | None) -> CommonCompileModuleArgs:
-    use_worker = arg.allow_worker and arg.haskell_toolchain.use_worker
+    is_worker_execute = arg.allow_worker and arg.haskell_toolchain.use_worker
 
     unit_params = UnitParams(
         name = arg.pkgname,
@@ -939,9 +943,9 @@ def _common_compile_module_args(
     oneshot_wrapper_args = unit_buck2_args(actions, unit_params)
 
     # These arguments are not intended for GHC, but for either `ghc_wrapper` or the worker.
-    command = _common_compile_wrapper_args(arg.ghc_wrapper, arg.haskell_toolchain, arg.pkgname, use_worker)
+    command = _common_compile_wrapper_args(arg.ghc_wrapper, arg.haskell_toolchain, arg.pkgname, is_worker_execute)
 
-    if not use_worker:
+    if not is_worker_execute:
         # Some rules pass in RTS (e.g. `+RTS ... -RTS`) options for GHC, which can't
         # be parsed when inside an argsfile.
         add_rts_flags(oneshot_wrapper_args, arg.haskell_toolchain.ghc_rts_flags)
@@ -955,7 +959,7 @@ def _common_compile_module_args(
     pre_args = pre.set.project_as_args("args")
     args_for_file.add(cmd_args(pre_args, format = "-optP={}"))
 
-    if use_worker:
+    if is_worker_execute:
         package_env_args = cmd_args()
     else:
         # Add -package-db and -package/-expose-package flags for each Haskell
@@ -1013,7 +1017,7 @@ def _common_compile_module_args(
     # target-level dependencies. needed for non-incremental build.
     target_deps_args = cmd_args()
 
-    if not use_worker:
+    if not is_worker_execute:
         for pkg in arg.toolchain_deps_by_name:
             target_deps_args.add(cmd_args(pkg, prepend = "-package"))
 
@@ -1198,7 +1202,7 @@ def _compile_module(
         worker: None | WorkerInfo,
         allow_worker: bool,
         allow_cache_upload: bool) -> CompiledModuleTSet:
-    use_worker = allow_worker and haskell_toolchain.use_worker
+    is_worker_execute = allow_worker and haskell_toolchain.use_worker
 
     abi_tag = actions.artifact_tag()
     packagedb_tag = actions.artifact_tag()
@@ -1246,7 +1250,7 @@ def _compile_module(
 
     # For the make worker, options related to local package dependencies need to be omitted entirely, since it uses the
     # unit env instead of package DBs to load them.
-    if use_worker:
+    if is_worker_execute:
         wrapper_args_for_file.add(_compile_make_args(
             actions,
             common_args = common_args,
@@ -1310,7 +1314,7 @@ def _compile_module(
 
     category_prefix = "haskell_compile_" + artifact_suffix.replace("-", "_")
 
-    if not use_worker:
+    if not is_worker_execute:
         wrapper_args_for_file.add(cmd_args(argfile(
             actions = actions,
             name = "{}_{}_ghc.argsfile".format(category_prefix, module_name),
@@ -1329,7 +1333,7 @@ def _compile_module(
         compile_cmd_args.add(compile_args_for_file)
 
     worker_args = {}
-    if worker != None and use_worker:
+    if worker != None and is_worker_execute:
         worker_args["exe"] = WorkerRunInfo(worker = worker)
 
     actions.run(
