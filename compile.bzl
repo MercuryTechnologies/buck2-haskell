@@ -296,6 +296,13 @@ UnitParams = record(
     compiler_flags = field(list[str | ResolvedStringWithMacros]),
 )
 
+def _add_dynamic_too_if_required(link_style: LinkStyle, args: cmd_args) -> bool:
+    if link_style in [LinkStyle("static_pic"), LinkStyle("static")]:
+        args.add("-dynamic-too")
+        return True
+    else:
+        return False
+
 # Assemble GHC arguments that are specific to a given unit, but not to a module.
 # Used for the metadata step as a basis for oneshot mode and as the full argument list for the make mode worker.
 # The worker also stores these in the metadata JSON in order to restore the unit state from cache after restarting.
@@ -321,8 +328,7 @@ def unit_ghc_args(actions: AnalysisActions, arg: UnitParams) -> cmd_args:
     elif arg.link_style == LinkStyle("static_pic"):
         args.add("-fPIC", "-fexternal-dynamic-refs")
 
-    if arg.link_style in [LinkStyle("static_pic"), LinkStyle("static")]:
-        args.add("-dynamic-too")
+    _add_dynamic_too_if_required(arg.link_style, args)
 
     args.add("-fbyte-code-and-object-code")
 
@@ -1062,8 +1068,8 @@ def _compile_oneshot_args(
         stubs = outputs[module.stub_dir]
         args.add("-stubdir", stubs)
 
-    if link_style in [LinkStyle("static_pic"), LinkStyle("static")]:
-        args.add("-dynamic-too")
+    is_dynamic_too_added = _add_dynamic_too_if_required(link_style, args)
+    if is_dynamic_too_added:
         args.add("-dyno", objects[1])
         args.add("-dynohi", his[1])
 
@@ -1458,9 +1464,7 @@ def compile_args(
     elif link_style == LinkStyle("static_pic"):
         args.add("-fPIC", "-fexternal-dynamic-refs")
 
-    # FIXME(jadel): why do we have three copies of this code?
-    if link_style in [LinkStyle("static_pic"), LinkStyle("static")]:
-        args.add("-dynamic-too")
+    _add_dynamic_too_if_required(link_style, args)
 
     osuf, hisuf = output_extensions(link_style, enable_profiling)
     args.add("-osuf", osuf, "-hisuf", hisuf)
