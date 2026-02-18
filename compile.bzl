@@ -857,11 +857,13 @@ def _categorize_package_deps(
         *,
         module_name: str,
         this_package_name: str,
+        this_mod_package_deps: dict[str, list[str]], # `dict[pkgname, list[modname]]`,
         package_deps: dict[str, dict[str, list[str]]], # `dict[modname, dict[pkgname, list[modname]]`
         module_graph: dict[str, list[str]],
         module_tsets: dict[str, CompiledModuleTSet],
         direct_deps_by_name: dict[str, _DirectDep],
-        toolchain_deps_by_name: dict[str, None]) -> _IndexedPackageDeps:
+        toolchain_deps_by_name: dict[str, None],
+        is_worker_execute: bool) -> _IndexedPackageDeps:
     """
     Arguments:
         module_name: For error messages.
@@ -871,7 +873,6 @@ def _categorize_package_deps(
     exposed_package_modules = []
     exposed_package_dbs = []
 
-    this_mod_package_deps = package_deps.get(module_name, {})
     for dep_pkgname, dep_modules in this_mod_package_deps.items():
         if dep_pkgname in toolchain_deps_by_name:
             toolchain_deps.append(dep_pkgname)
@@ -886,15 +887,19 @@ def _categorize_package_deps(
         else:
             fail("Unknown library dependency '{}' for module '{}'. Add the library to the `deps` attribute".format(dep_pkgname, module_name))
 
-    mod_deps = module_graph[module_name]
+    # NOTE: currently, worker does not care about the transitive module level package deps, and this cause performance regression
+    # But these -package arguments should be the same as non-worker one-shot mode to extract extra-libraries from package db,
+    # so eventually when that implementation is made, this needs to be restored and then correctly with Transitive Set (for performance).
+    if not is_worker_execute:
+        mod_deps = module_graph[module_name]
 
-    this_package_tsets = [module_tsets.get(mod_dep) for mod_dep in mod_deps if module_tsets.get(mod_dep)]
+        this_package_tsets = [module_tsets.get(mod_dep) for mod_dep in mod_deps if module_tsets.get(mod_dep)]
 
-    for tset in this_package_tsets:
-       for m in tset.traverse():
-           if m.package == this_package_name:
-               library_deps.extend(package_deps.get(m.name, {}).keys())
-    library_deps = dedupe(library_deps)
+        for tset in this_package_tsets:
+           for m in tset.traverse():
+               if m.package == this_package_name:
+                   library_deps.extend(package_deps.get(m.name, {}).keys())
+        library_deps = dedupe(library_deps)
 
     return _IndexedPackageDeps(
         toolchain_deps = toolchain_deps,
@@ -1201,6 +1206,7 @@ def _compile_module(
         module_tsets: dict[str, CompiledModuleTSet],
         md_file: Artifact,
         graph: dict[str, list[str]],
+        this_mod_package_deps: dict[str, list[str]],  # `dict[pkgname, list[modname]]`
         package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
         outputs: dict[Artifact, OutputArtifact],
         artifact_suffix: str,
@@ -1219,11 +1225,13 @@ def _compile_module(
     categorized_package_deps = _categorize_package_deps(
         module_name = module_name,
         this_package_name = common_args.pkgname,
+        this_mod_package_deps = this_mod_package_deps,
         package_deps = package_deps,
         module_graph = graph,
         module_tsets = module_tsets,
         direct_deps_by_name = direct_deps_by_name,
         toolchain_deps_by_name = toolchain_deps_by_name,
+        is_worker_execute = is_worker_execute,
     )
 
     # Transitive module dependencies from other packages.
@@ -1403,6 +1411,12 @@ def _compile_incr(
         package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
         direct_deps_by_name: dict[str, _DirectDep],
         outputs: dict[Artifact, OutputArtifact]) -> None:
+    is_worker_execute = arg.allow_worker and arg.haskell_toolchain.use_worker
+    if is_worker_execute:
+        package_deps_1 = {}
+    else:
+        package_deps_1 = package_deps
+
     for module_name in post_order_traversal(graph):
         module = _get_module_from_map(mapped_modules, module_name)
         module_tsets[module_name] = _compile_module(
@@ -1420,7 +1434,8 @@ def _compile_incr(
             module = module,
             module_tsets = module_tsets,
             graph = graph,
-            package_deps = package_deps,
+            this_mod_package_deps = package_deps.get(module_name, {}),
+            package_deps = package_deps_1,
             outputs = outputs,
             md_file = arg.md_file,
             artifact_suffix = arg.artifact_suffix,
@@ -1562,6 +1577,7 @@ def _make_module_tsets_non_incr(
         module_tsets = {},
         direct_deps_by_name = direct_deps_by_name,
         toolchain_deps_by_name = toolchain_deps_by_name,
+        is_worker_execute = False,
     )
 
     # Transitive module dependencies from other packages.
