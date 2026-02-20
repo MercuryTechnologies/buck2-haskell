@@ -1578,7 +1578,8 @@ def compile_args(
 def _make_module_tsets_non_incr(
         actions: AnalysisActions,
         module: _Module,
-        package_deps: dict[str, dict[str, list[str]]], # `dict[modname, dict[pkgname, list[modname]]`
+        this_mod_package_deps: dict[str, list[str]],  # `dict[pkgname, list[modname]]`
+        package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
         module_graph: dict[str, list[str]],
         toolchain_deps_by_name: dict[str, None],
         direct_deps_by_name: dict[str, _DirectDep],
@@ -1587,6 +1588,7 @@ def _make_module_tsets_non_incr(
     categorized_package_deps = _categorize_package_deps(
         module_name = name,
         this_package_name = pkgname,
+        this_mod_package_deps = this_mod_package_deps,
         package_deps = package_deps,
         module_graph = module_graph,
         module_tsets = {},
@@ -1665,6 +1667,7 @@ def _compile_non_incr(
         module_tsets[module_name] = _make_module_tsets_non_incr(
             actions,
             module = module,
+            this_mod_package_deps = package_deps.get(module_name, {}),
             package_deps = package_deps,
             module_graph = graph,
             toolchain_deps_by_name = arg.toolchain_deps_by_name,
