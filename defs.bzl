@@ -79,35 +79,38 @@ def _scripts_arg():
         "_worker": attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None),
     }
 
-def _validate_src_arg():
+def _validate_srcs_arg():
     return {
-        "validate_src": attrs.option(
+        "validate_srcs": attrs.option(
             attrs.dep(providers = [RunInfo]),
             default = None,
             doc = """
-    An optional program which is invoked once per source file in order to
-    perform any validations you might want to perform, such as checking that all
-    srcs are Haskell source files, or checking that module names match file
-    names.
+    An optional program which is invoked once per target (or more, in batches
+    of 100 source files) to perform any validations you might want to perform,
+    such as checking that all srcs are Haskell source files, or checking that
+    module names match file names.
 
-    If this attr is provided, it needs to be a program which accepts 3 command
-    line arguments:
+    If this attr is provided, it needs to be a program which accepts a variable
+    number of command line arguments.
 
-    * the first is the input Haskell source file that should be validated,
-      relative to the cell root. For genrules this will be within
-      buck-out/gen/. The program should attempt to read this file.
-
-    * the second is the 'apparent' path of the source file. This is its full
-      path (relative to the cell root) if it's a regular source file, or its
-      short_path if it is a target (eg. an `export_file` or `genrule`). The
-      program should not attempt to read this file, since it likely won't exist
-      in the case of genrules; it is provided for use in error messages, or if
-      you want to validate that module names match file names.
-
-    * the third is file path, which should be created by the program if the
-      validations succeed (the contents of this file don't matter). The program
+    * the first is an output file path, which should be created by the program if
+      the validations succeed (the contents of this file don't matter). The program
       should exit nonzero and print an understandable error message to stderr if
       the validations fail.
+
+    * the remaining arguments, of which there are a variable number, represent
+      in alternation the actual path and "apparent path" of each source file that
+      should be validated.
+
+     * each actual path is relative to the cell root. For genrules this will be
+      within buck-out/gen/. The program should attempt to read this file.
+
+     * the "apparent path" of a source is its full path (relative to the cell root)
+       if it's a regular source file, or its short_path if it is a target
+       (eg. an `export_file` or `genrule`). The program should not attempt to read
+       this file, since it likely won't exist in the case of genrules; it is
+       provided for use in error messages, or if you want to validate that module
+       names match file names.
 
     The purpose of this attr is to allow you to produce more meaningful error
     messages in cases where the other actions involved in building a haskell
@@ -116,6 +119,7 @@ def _validate_src_arg():
     provided, all srcs *must* be validated by the provided program before any
     other actions can begin. This means that this step is not suitable for
     general validations such as linting. Use it sparingly, if at all!
+
 """,
         ),
     }
@@ -177,7 +181,7 @@ haskell_common = struct(
     exported_linker_flags_arg = _exported_linker_flags_arg,
     scripts_arg = _scripts_arg,
     external_tools_arg = _external_tools_arg,
-    validate_src_arg = _validate_src_arg,
+    validate_srcs_arg = _validate_srcs_arg,
     srcs_envs_arg = _srcs_envs_arg,
     module_prefix_arg = _module_prefix_arg,
     strip_prefix_arg = _strip_prefix_arg,
@@ -199,7 +203,7 @@ _common_binary_attrs = (
     native_common.link_style() |
     haskell_common.srcs_arg() |
     haskell_common.external_tools_arg() |
-    haskell_common.validate_src_arg() |
+    haskell_common.validate_srcs_arg() |
     haskell_common.srcs_envs_arg() |
     haskell_common.extra_libraries_arg() |
     haskell_common.compiler_flags_arg() |
@@ -245,7 +249,7 @@ haskell_test = rule(
     doc = """
         A `haskell_test()` rule builds a Haskell binary from the supplied set of Haskell source files
         and dependencies and runs it as a test.
-    
+
         ```
         # A rule that builds and runs a Haskell test.
         haskell_test(
@@ -270,8 +274,8 @@ haskell_test = rule(
             """),
             "env": attrs.dict(key = attrs.string(), value = attrs.arg(), sorted = False, default = {}, doc = """
                 A map of environment names and values to set when running the test.
-                
-                
+
+
                 It is also possible to expand references to other rules within the **values** of
                 these environment variables, using builtin `string parameter macros`:
 
@@ -388,7 +392,7 @@ haskell_library = rule(
         # @unsorted-dict-items
         haskell_common.srcs_arg() |
         haskell_common.external_tools_arg() |
-        haskell_common.validate_src_arg() |
+        haskell_common.validate_srcs_arg() |
         haskell_common.srcs_envs_arg() |
         haskell_common.extra_libraries_arg() |
         haskell_common.compiler_flags_arg() |

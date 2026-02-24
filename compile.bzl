@@ -398,7 +398,7 @@ MetadataParams = record(
     haskell_direct_deps_lib_infos = field(list[HaskellLibraryInfo]),
     lib_package_name_and_prefix = field(cmd_args),
     md_gen = field(RunInfo),
-    validate_src = field(RunInfo | None),
+    validate_srcs = field(RunInfo | None),
     sources = field(list[Artifact]),
     strip_prefix = field(str),
     suffix = field(str),
@@ -410,29 +410,63 @@ MetadataParams = record(
     cell_root = field(CellRoot),
 )
 
+def _validate_srcs_batch(
+    actions: AnalysisActions,
+    arg: MetadataParams,
+    batch_name: str,
+    sources: list[Artifact]) -> Artifact:
+
+    batch_output = actions.declare_output("validate_srcs_" + batch_name + ".txt")
+    validate_args = cmd_args(arg.validate_srcs, batch_output.as_output())
+    for source in sources:
+        if source.is_source:
+            apparent_path = source
+        else:
+            apparent_path = source.short_path
+        validate_args.add(source)
+        validate_args.add(apparent_path)
+    actions.run(
+        validate_args,
+        category = "validate_srcs",
+        identifier = batch_name,
+        allow_cache_upload = arg.allow_cache_upload
+    )
+    return batch_output
+
 def _dynamic_target_metadata_impl(
         actions: AnalysisActions,
         output: OutputArtifact,
         arg: MetadataParams,
         pkg_deps: None | ResolvedDynamicValue) -> list[Provider]:
-    validate_outputs = []
-    if arg.validate_src:
-        for source in arg.sources:
-            if source.is_source:
-                apparent_path = source
-            else:
-                apparent_path = source.short_path
-            validate_output = actions.declare_output("validate_src", source.short_path + ".txt")
-            actions.run(
-                cmd_args(arg.validate_src, source, apparent_path, validate_output.as_output()),
-                category = "validate_src",
-                identifier = source.short_path,
-                allow_cache_upload = arg.allow_cache_upload,
-            )
-            validate_outputs.append(validate_output)
 
+    validate_outputs = []
     munit = arg.unit
     unit = munit.unit
+
+    # If we have more than 1000 sources to validate, break them into batches.
+    # This is a temporary workaround needed by `mwb` for its very large targets;
+    # we can remove it once it's no longer necessary.
+    if arg.validate_srcs:
+        batch_cutoff = 1000
+        per_batch = 100
+        if len(arg.sources) > batch_cutoff:
+            batch_count = len(arg.sources) // per_batch
+        else:
+            batch_count = 1
+        batches = {}
+        for i, src in enumerate(arg.sources):
+            if batch_count == 1:
+                batch_name = unit.name
+            else:
+                batch_id = hash(src) % batch_count
+                batch_name = "{}_{}".format(unit.name, batch_id)
+            batches.setdefault(batch_name, [])
+            batches[batch_name].append(src)
+
+        for (batch_name, batch_sources) in batches.items():
+            batch_output = _validate_srcs_batch(actions, arg, batch_name, batch_sources)
+            validate_outputs.append(batch_output)
+
     haskell_toolchain = unit.haskell_toolchain
 
     is_worker_execute = arg.unit.unit.is_worker_execute
@@ -572,7 +606,7 @@ def target_metadata(
     link_suffix = "-" + link_style.value
     md_file = ctx.actions.declare_output(ctx.label.name + link_suffix + prof_suffix + ".md.json")
     md_gen = ctx.attrs._generate_target_metadata[RunInfo]
-    validate_src = ctx.attrs.validate_src[RunInfo] if ctx.attrs.validate_src else None
+    validate_srcs = ctx.attrs.validate_srcs[RunInfo] if ctx.attrs.validate_srcs else None
 
     libprefix = repr(ctx.label.path).replace("//", "_").replace("/", "_")
 
@@ -628,7 +662,7 @@ def target_metadata(
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
             lib_package_name_and_prefix = _attr_deps_haskell_lib_package_name_and_prefix(ctx, link_style),
             md_gen = md_gen,
-            validate_src = validate_src,
+            validate_srcs = validate_srcs,
             sources = sources,
             strip_prefix = _strip_prefix(str(ctx.label.cell_root), str(ctx.label.path)),
             suffix = link_style.value + ("+prof" if enable_profiling else ""),
