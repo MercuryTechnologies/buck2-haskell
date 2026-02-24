@@ -214,7 +214,6 @@ _common_binary_attrs = (
     haskell_common.strip_prefix_arg() |
     haskell_common.incremental_arg() |
     haskell_common.allow_cache_upload_arg() |
-    buck.platform_deps_arg() |
     {
         "contacts": attrs.list(attrs.string(), default = []),
         "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
@@ -403,7 +402,6 @@ haskell_library = rule(
         haskell_common.strip_prefix_arg() |
         haskell_common.incremental_arg() |
         haskell_common.allow_cache_upload_arg() |
-        buck.platform_deps_arg() |
         native_common.link_whole(link_whole_type = attrs.bool(default = False)) |
         native_common.preferred_linkage(preferred_linkage_type = attrs.enum(Linkage.values())) |
         {

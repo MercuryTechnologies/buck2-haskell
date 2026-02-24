@@ -695,6 +695,8 @@ def _make_package(
                 for lib in ctx.attrs.extra_libraries
             ],
             to_link_strategy(link_style),
+            prefer_stripped = True,
+            transformation_spec_context = None,
         ),
     ])
 
@@ -973,6 +975,8 @@ def _build_haskell_lib(
             for lib in ctx.attrs.extra_libraries
         ],
         to_link_strategy(link_style),
+        prefer_stripped = True,
+        transformation_spec_context = None,
     ))
 
     if link_style == LinkStyle("shared"):
@@ -987,6 +991,8 @@ def _build_haskell_lib(
             ctx,
             nlis,
             to_link_strategy(link_style),
+            prefer_stripped = True,
+            transformation_spec_context = None,
         )
 
         haskell_direct_deps_lib_infos = attr_deps_haskell_lib_infos(
@@ -1040,18 +1046,22 @@ def _build_haskell_lib(
         # (but would that work with Template Haskell?)
         objs = [o for o in compiled.objects if o.extension != ".dyn_o"]
 
-        archive = make_archive(ctx, lib_short_path, objs, hidden = extra_libs)
-        lib = archive.artifact
-        libs = [lib] + archive.external_objects
+        if objs:
+            archive = make_archive(ctx, lib_short_path, objs, hidden = extra_libs)
+            lib = archive.artifact
+            libs = [lib] + archive.external_objects
+            linkables = [ArchiveLinkable(
+                archive = archive,
+                linker_type = linker_info.type,
+                link_whole = ctx.attrs.link_whole,
+            )]
+        else:
+            libs = []
+            linkables = []
+
         link_infos = LinkInfos(
             default = LinkInfo(
-                linkables = [
-                    ArchiveLinkable(
-                        archive = archive,
-                        linker_type = linker_info.type,
-                        link_whole = ctx.attrs.link_whole,
-                    ),
-                ],
+                linkables = linkables,
             ),
         )
         extra = []
@@ -1414,7 +1424,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             prof_infos = prof_merged_link_info,
         ),
         linkable_graph,
-        cxx_merge_cpreprocessors(ctx, pp, inherited_pp_info),
+        cxx_merge_cpreprocessors(ctx.actions, pp, inherited_pp_info),
         merge_shared_libraries(
             ctx.actions,
             shared_libs,
@@ -1440,6 +1450,8 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
                 ctx,
                 [merged_link_info],
                 to_link_strategy(link_style),
+                prefer_stripped = True,
+                transformation_spec_context = None,
             ),
         ))
         templ_vars[name] = args
@@ -1701,6 +1713,8 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             for lib in ctx.attrs.extra_libraries
         ],
         to_link_strategy(link_style),
+        prefer_stripped = True,
+        transformation_spec_context = None,
     )))
 
     # only add the first object per module
@@ -1855,8 +1869,14 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             li = lib.get(MergedLinkInfo)
             if li != None:
                 nlis.append(li)
-        sos.extend(traverse_shared_library_info(shlib_info))
-        infos = get_link_args_for_strategy(ctx, nlis, to_link_strategy(link_style))
+        sos.extend(traverse_shared_library_info(shlib_info, transformation_provider = None))
+        infos = get_link_args_for_strategy(
+            ctx,
+            nlis,
+            to_link_strategy(link_style),
+            prefer_stripped = True,
+            transformation_spec_context = None,
+        )
 
     if link_style in [LinkStyle("static"), LinkStyle("static_pic")]:
         hlis = attr_deps_haskell_link_infos_sans_template_deps(ctx)
@@ -2224,6 +2244,8 @@ def make_haskell_link_group(
             if MergedLinkInfo in lib
         ],
         to_link_strategy(link_style),
+        prefer_stripped = True,
+        transformation_spec_context = None,
     )
     extra_lib_dyns = [
         lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic

@@ -1858,15 +1858,19 @@ def compile(
         enable_profiling = False,
     )
 
-    link_args = unpack_link_args(get_link_args_for_strategy(
-        ctx,
-        [
-            lib[MergedLinkInfo]
-            for lib in ctx.attrs.extra_libraries
-            if MergedLinkInfo in lib
-        ],
-        to_link_strategy(link_style),
-    ))
+    link_args = unpack_link_args(
+        get_link_args_for_strategy(
+            ctx,
+            [
+                lib[MergedLinkInfo]
+                for lib in ctx.attrs.extra_libraries
+                if MergedLinkInfo in lib
+            ],
+            to_link_strategy(link_style),
+            prefer_stripped = True,
+            transformation_spec_context = None,
+        ),
+    )
 
     is_worker_execute = ctx.attrs.allow_worker and haskell_toolchain.use_worker
 

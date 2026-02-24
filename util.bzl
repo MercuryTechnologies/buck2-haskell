@@ -11,10 +11,6 @@ load(
     "CxxPlatformInfo",
 )
 load(
-    ":toolchain.bzl",
-    "HaskellToolchainLibrary",
-)
-load(
     "@prelude//linking:link_info.bzl",
     "LinkStyle",
     "MergedLinkInfo",
@@ -23,7 +19,6 @@ load(
     "@prelude//linking:shared_libraries.bzl",
     "SharedLibraryInfo",
 )
-load("@prelude//utils:platform_flavors_util.bzl", "by_platform")
 load("@prelude//utils:utils.bzl", "flatten")
 load(
     ":library_info.bzl",
@@ -35,6 +30,10 @@ load(
     "HaskellLinkGroupInfo",
     "HaskellLinkInfo",
     "HaskellProfLinkInfo",
+)
+load(
+    ":toolchain.bzl",
+    "HaskellToolchainLibrary",
 )
 
 HASKELL_EXTENSIONS = [
@@ -56,9 +55,9 @@ HASKELL_BOOT_EXTENSIONS = [
 def to_hash(pkgname) -> str:
     n = hash(pkgname)
     if n > 0:
-      n2 = n
+        n2 = n
     else:
-      n2 = -n
+        n2 = -n
     s = "00000000%x" % n2
     return s[-8:]
 
@@ -82,12 +81,8 @@ def src_to_module_name(x: str) -> str:
     base, _ext = paths.split_extension(x)
     return base.replace("/", ".")
 
-def _by_platform(ctx: AnalysisContext, xs: list[(str, list[typing.Any])]) -> list[typing.Any]:
-    platform = ctx.attrs._cxx_toolchain[CxxPlatformInfo].name
-    return flatten(by_platform([platform], xs))
-
 def attr_deps(ctx: AnalysisContext) -> list[Dependency]:
-    return ctx.attrs.deps + _by_platform(ctx, ctx.attrs.platform_deps)
+    return ctx.attrs.deps
 
 def attr_deps_haskell_link_infos(ctx: AnalysisContext) -> list[HaskellLinkInfo]:
     return dedupe(filter(
@@ -97,6 +92,7 @@ def attr_deps_haskell_link_infos(ctx: AnalysisContext) -> list[HaskellLinkInfo]:
             for d in attr_deps(ctx) + ctx.attrs.template_deps
         ],
     ))
+
 def attr_deps_haskell_link_group_infos(ctx: AnalysisContext) -> list[HaskellLinkGroupInfo]:
     return dedupe(filter(
         None,
@@ -105,7 +101,6 @@ def attr_deps_haskell_link_group_infos(ctx: AnalysisContext) -> list[HaskellLink
             for d in ctx.attrs.deps
         ],
     ))
-
 
 def attr_deps_haskell_toolchain_libraries(ctx: AnalysisContext) -> list[HaskellToolchainLibrary]:
     return filter(
@@ -208,7 +203,6 @@ def _source_prefix(source: Artifact, module_name: str) -> str:
         return source_path[0:-len(module_name) - 1]
 
     return ""
-
 
 def get_source_prefixes(srcs: list[Artifact], module_map: dict[str, str]) -> list[str]:
     """Determine source prefixes for the given haskell files and a mapping from source file module name to module name."""
