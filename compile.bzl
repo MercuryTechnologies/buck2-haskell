@@ -458,7 +458,7 @@ def _dynamic_target_metadata_impl(
             if batch_count == 1:
                 batch_name = unit.name
             else:
-                batch_id = hash(src) % batch_count
+                batch_id = hash(str(src)) % batch_count
                 batch_name = "{}_{}".format(unit.name, batch_id)
             batches.setdefault(batch_name, [])
             batches[batch_name].append(src)
