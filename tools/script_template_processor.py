@@ -138,7 +138,7 @@ def _replace_template_values(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(fromfile_prefix_chars='@')
 
     parser.add_argument(
         "--script_template",

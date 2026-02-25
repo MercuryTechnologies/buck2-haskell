@@ -51,6 +51,7 @@ load(
     "depth_first_traversal",
     "depth_first_traversal_by",
 )
+load("@prelude//utils:argfile.bzl", "at_argfile")
 load("@prelude//utils:utils.bzl", "flatten")
 load(
     ":compile.bzl",
@@ -63,13 +64,20 @@ load(
     "HaskellLibraryProvider",
 )
 load(
+    ":link_info.bzl",
+    "HaskellLinkGroupInfo",
+)
+load(
     ":toolchain.bzl",
+    "DynamicHaskellPackageDbInfo",
+    "HaskellPackageDbTSet",
     "HaskellToolchainInfo",
 )
 load(
     ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_lib_infos",
+    "attr_deps_haskell_link_group_infos",
     "attr_deps_haskell_link_infos",
     "get_artifact_suffix",
 )
@@ -107,12 +115,7 @@ def _write_final_ghci_script(
         enable_profiling: bool) -> Artifact:
     srcs = " ".join(
         [
-            paths.normalize(
-                paths.join(
-                    paths.relativize(str(ctx.label.path), "fbcode"),
-                    s,
-                ),
-            )
+            paths.normalize(paths.join(str(ctx.label.path), str(s)))
             for s in ctx.attrs.srcs
         ],
     )
@@ -127,6 +130,8 @@ def _write_final_ghci_script(
     compiler_flags.add([
         "-fPIC",
         "-fexternal-dynamic-refs",
+        "-hide-all-packages",
+        "-package-env=-",
     ])
 
     if enable_profiling:
@@ -382,35 +387,35 @@ def _replace_macros_in_script_template(
     )
     script_template_processor = haskell_toolchain.script_template_processor[RunInfo]
 
-    replace_cmd = cmd_args(script_template_processor)
-    replace_cmd.add(cmd_args(script_template, format = "--script_template={}"))
+    replace_args = cmd_args()
+    replace_args.add(cmd_args(script_template, format = "--script_template={}"))
     for name, path in toolchain_paths.items():
         if path:
-            replace_cmd.add(cmd_args(path, format = "--{}={{}}".format(name)))
+            replace_args.add(cmd_args(path, format = "--{}={{}}".format(name)))
 
-    replace_cmd.add(cmd_args(
+    replace_args.add(cmd_args(
         final_script.as_output(),
         format = "--output={}",
     ))
 
-    replace_cmd.add(cmd_args(
+    replace_args.add(cmd_args(
         ctx.label.name,
         format = "--target_name={}",
     ))
 
     exposed_package_args = exposed_package_args if exposed_package_args != None else ""
-    replace_cmd.add(cmd_args(
+    replace_args.add(cmd_args(
         cmd_args(exposed_package_args, delimiter = " "),
         format = "--exposed_packages={}",
     ))
 
     if packagedb_args != None:
-        replace_cmd.add(cmd_args(
+        replace_args.add(cmd_args(
             packagedb_args,
             format = "--package_dbs={}",
         ))
     if prebuilt_packagedb_args != None:
-        replace_cmd.add(cmd_args(
+        replace_args.add(cmd_args(
             prebuilt_packagedb_args,
             format = "--prebuilt_package_dbs={}",
         ))
@@ -436,10 +441,20 @@ def _replace_macros_in_script_template(
 
     for (orig_val, macro_value, flag) in optional_flags:
         if orig_val != None:
-            replace_cmd.add(cmd_args(
+            replace_args.add(cmd_args(
                 macro_value,
                 format = flag + "={}",
             ))
+
+    replace_cmd = cmd_args(script_template_processor)
+    replace_cmd.add(at_argfile(
+        actions = ctx.actions,
+        name = "ghci_script_args_{}".format(
+            output_name if output_name else script_template.basename,
+        ),
+        args = replace_args,
+        allow_args = True,
+    ))
 
     ctx.actions.run(
         replace_cmd,
@@ -617,6 +632,34 @@ def _write_start_ghci(
     else:
         ctx.actions.copy_file(script_file, header_ghci)
 
+def _ghci_resolve_toolchain_pkgs_impl(
+        actions: AnalysisActions,
+        pkg_deps: ResolvedDynamicValue,
+        output: OutputArtifact,
+        arg) -> list[Provider]:
+    package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
+
+    toolchain_package_db_tset = actions.tset(
+        HaskellPackageDbTSet,
+        children = [package_db[name] for name in arg.toolchain_libs if name in package_db],
+    )
+
+    pkg_db_args = cmd_args(
+        toolchain_package_db_tset.project_as_args("package_db"),
+        format = "-package-db {}",
+    )
+    actions.write(output, pkg_db_args)
+    return []
+
+_ghci_resolve_toolchain_pkgs = dynamic_actions(
+    impl = _ghci_resolve_toolchain_pkgs_impl,
+    attrs = {
+        "pkg_deps": dynattrs.dynamic_value(),
+        "output": dynattrs.output(),
+        "arg": dynattrs.value(typing.Any),
+    },
+)
+
 def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
     enable_profiling = ctx.attrs.enable_profiling
 
@@ -663,6 +706,23 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         pkg_deps = None,
     )
 
+    link_group_libs = attr_deps_haskell_link_group_infos(ctx)
+    all_link_group_ids = [l.id for lg in link_group_libs for l in lg.libraries]
+
+    toolchain_libs = packages_info.transitive_deps.reduce("packages")
+    toolchain_pkg_args_file = ctx.actions.declare_output("toolchain_pkgdbs.args")
+    if haskell_toolchain.packages:
+        ctx.actions.dynamic_output_new(_ghci_resolve_toolchain_pkgs(
+            pkg_deps = haskell_toolchain.packages.dynamic,
+            output = toolchain_pkg_args_file.as_output(),
+            arg = struct(toolchain_libs = toolchain_libs),
+        ))
+    else:
+        ctx.actions.write(toolchain_pkg_args_file.as_output(), "")
+
+    for lib in packages_info.transitive_deps.reduce("toolchain_packages"):
+        packages_info.exposed_package_args.add("-package", lib.name)
+
     # Create package db symlinks
     package_symlinks = []
 
@@ -679,8 +739,9 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
                 package_symlinks_root,
                 lib.name,
             )
+            pkg_db = lib.empty_db if lib.name in all_link_group_ids and lib.empty_db else lib.db
             lib_symlinks = {
-                "packagedb": lib.db,
+                "packagedb": pkg_db,
             }
 
             for prof, import_dir in lib.import_dirs.items():
@@ -705,6 +766,27 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
                 ),
             )
     prebuilt_packagedb_args = cmd_args(prebuilt_packagedb_args_set.keys(), delimiter = " ")
+
+    for lg in link_group_libs:
+        lg_symlinks_root = paths.join(
+            package_symlinks_root,
+            lg.pkgname,
+        )
+        lg_symlinks = {
+            "packagedb": lg.db,
+            lg.lib.short_path: lg.lib,
+        }
+        lg_symlinked = ctx.actions.symlinked_dir(
+            lg_symlinks_root,
+            lg_symlinks,
+        )
+        package_symlinks.append(lg_symlinked)
+        packagedb_args.add(
+            paths.join(
+                lg_symlinks_root,
+                "packagedb",
+            ),
+        )
 
     script_templates = []
     for script_template in ctx.attrs.extra_script_templates:
@@ -743,6 +825,7 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         omnibus_data.omnibus,
         omnibus_data.so_symlinks_root,
         final_ghci_script,
+        toolchain_pkg_args_file,
     ]
     outputs.extend(package_symlinks)
     outputs.extend(script_templates)
