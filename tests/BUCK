@@ -1,0 +1,40 @@
+load("@buck2-haskell//:defs.bzl", "haskell_library", "haskell_test", "haskell_toolchain_library")
+
+# We aren't going to ship a toolchain in this repo, so delegate to the user's
+# toolchain.
+[haskell_toolchain_library(
+    name = lib,
+    visibility = ["buck2-haskell//tests/..."],
+) for lib in [
+    "aeson",
+    "base",
+    "bytestring",
+    "containers",
+    "directory",
+    "filepath",
+]]
+
+# Library that declares a resource and propagates ResourceInfo. Its resources
+# should be visible on the test consuming it.
+haskell_library(
+    name = "resource_lib",
+    srcs = ["ResourceLib.hs"],
+    deps = [":base"],
+    resources = ["test_resource.txt"],
+)
+
+haskell_test(
+    name = "test_resources",
+    srcs = ["TestResources.hs"],
+    main = "TestResources",
+    resources = ["test_resource2.txt"],
+    deps = [
+        ":resource_lib",
+        ":aeson",
+        ":base",
+        ":bytestring",
+        ":containers",
+        ":directory",
+        ":filepath",
+    ],
+)

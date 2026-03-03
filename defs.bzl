@@ -173,6 +173,11 @@ def _allow_cache_upload_arg():
 """),
     }
 
+def _resources_arg():
+    return {
+        "resources": attrs.named_set(attrs.one_of(attrs.dep(), attrs.source()), sorted = True, default = []),
+    }
+
 haskell_common = struct(
     srcs_arg = _srcs_arg,
     deps_arg = _deps_arg,
@@ -188,6 +193,7 @@ haskell_common = struct(
     extra_libraries_arg = _extra_libraries_arg,
     incremental_arg = _incremental_arg,
     allow_cache_upload_arg = _allow_cache_upload_arg,
+    resources_arg = _resources_arg,
 )
 
 _common_binary_attrs = (
@@ -209,6 +215,7 @@ _common_binary_attrs = (
     haskell_common.compiler_flags_arg() |
     haskell_common.ghc_rts_flags_arg() |
     haskell_common.deps_arg() |
+    haskell_common.resources_arg() |
     haskell_common.scripts_arg() |
     haskell_common.module_prefix_arg() |
     haskell_common.strip_prefix_arg() |
@@ -397,6 +404,7 @@ haskell_library = rule(
         haskell_common.compiler_flags_arg() |
         haskell_common.ghc_rts_flags_arg() |
         haskell_common.deps_arg() |
+        haskell_common.resources_arg() |
         haskell_common.scripts_arg() |
         haskell_common.module_prefix_arg() |
         haskell_common.strip_prefix_arg() |
@@ -478,6 +486,7 @@ haskell_prebuilt_library = rule(
             """),
         } |
         haskell_common.exported_linker_flags_arg() |
+        haskell_common.resources_arg() |
         {
             "exported_post_linker_flags": attrs.list(attrs.arg(anon_target_compatible = True), default = []),
             "contacts": attrs.list(attrs.string(), default = []),

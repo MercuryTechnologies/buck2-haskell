@@ -299,7 +299,7 @@ def run_ghc_depends(
                 args_file.write(arg)
                 args_file.write("\n")
 
-        args_outer = [str(ghc.absolute()), "@" + ghc_args_file_at]
+        args_outer = [str(ghc.absolute()), "@" + os.path.abspath(ghc_args_file_at)]
 
         env = os.environ.copy()
         path = env.get("PATH", "")
