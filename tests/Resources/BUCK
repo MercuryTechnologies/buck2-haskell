@@ -1,0 +1,34 @@
+load("@buck2-haskell//tests:buck2_haskell_target.bzl", "buck2_haskell_library", "buck2_haskell_test")
+
+export_file(
+    name = "exported",
+    src = "subdir/resource3.txt",
+    out = "export_file.txt",
+)
+
+# Library that declares a resource and propagates ResourceInfo. Its resources
+# should be visible on the test consuming it.
+buck2_haskell_library(
+    name = "resource_lib",
+    srcs = ["LibExportingResource.hs"],
+    deps = ["//tests:base"],
+    resources = {"test_resource.txt": "resource1.txt", "subdir.txt": ":exported"},
+)
+
+buck2_haskell_test(
+    name = "resources_spec",
+    srcs = ["ResourcesSpec.hs"],
+    main = "Resources.ResourcesSpec",
+    resources = ["resource2.txt"],
+    deps = [
+        ":resource_lib",
+        "//tests:aeson",
+        "//tests:base",
+        "//tests:bytestring",
+        "//tests:hspec",
+        "//tests:hspec-expectations",
+        "//tests:containers",
+        "//tests:directory",
+        "//tests:filepath",
+    ],
+)

@@ -1,0 +1,19 @@
+load("@buck2-haskell//:defs.bzl", "haskell_toolchain_library")
+
+# We aren't going to ship a toolchain in this repo, so delegate to the user's
+# toolchain.
+[haskell_toolchain_library(
+    name = lib,
+    visibility = ["buck2-haskell//tests/..."],
+) for lib in [
+    # keep-sorted start
+    "aeson",
+    "base",
+    "bytestring",
+    "containers",
+    "directory",
+    "filepath",
+    "hspec",
+    "hspec-expectations",
+    # keep-sorted end
+]]

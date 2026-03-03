@@ -109,7 +109,8 @@ load("@prelude//tests:re_utils.bzl", "get_re_executors_from_props")
 load("@prelude//utils:argfile.bzl", "at_argfile")
 load("@prelude//utils:arglike.bzl", "ArgLike")
 load("@prelude//utils:set.bzl", "set")
-load("@prelude//utils:utils.bzl", "filter_and_map_idx", "flatten")
+load("@prelude//utils:utils.bzl", "filter_and_map_idx", "flatten", "flatten_dict")
+load("@prelude//:resources.bzl", "ResourceInfo", "create_resource_db", "gather_resources")
 load(
     ":compile.bzl",
     "CompileResultInfo",
@@ -137,6 +138,7 @@ load(
     "cxx_toolchain_link_style",
 )
 load(":pkg_conf.bzl", "append_pkg_conf_link_fields_for_link_infos")
+load(":resources.bzl", "haskell_attr_resources")
 load(
     ":toolchain.bzl",
     "DynamicHaskellPackageDbInfo",
@@ -483,6 +485,11 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             prof_infos = prof_merged_link_info,
         ),
         linkable_graph,
+        ResourceInfo(resources = gather_resources(
+            label = ctx.label,
+            resources = haskell_attr_resources(ctx),
+            deps = ctx.attrs.deps,
+        )),
     ]
 
 def _register_package_conf(
@@ -1436,6 +1443,12 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     if indexing_tsets:
         providers.append(HaskellIndexInfo(info = indexing_tsets))
 
+    providers.append(ResourceInfo(resources = gather_resources(
+        label = ctx.label,
+        resources = haskell_attr_resources(ctx),
+        deps = attr_deps(ctx),
+    )))
+
     # TODO(cjhopman): This code is for templ_vars is duplicated from cxx_library
     templ_vars = {}
 
@@ -1637,6 +1650,7 @@ HaskellExecutableOutput = record(
     binary = Artifact,
     sub_targets = dict[str, list[DefaultInfo]],
     run = ArgLike,
+    runtime_files = field(list[ArgLike], []),
     index_info = field(HaskellIndexInfo | None),
 )
 
@@ -1644,7 +1658,7 @@ def haskell_binary_impl(ctx: AnalysisContext) -> list[Provider]:
     exe = _haskell_executable(ctx)
 
     providers = [
-        DefaultInfo(exe.binary, sub_targets = exe.sub_targets),
+        DefaultInfo(exe.binary, other_outputs = exe.runtime_files, sub_targets = exe.sub_targets),
         RunInfo(args = exe.run),
     ]
     if exe.index_info:
@@ -1934,6 +1948,23 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         ),
     ))
 
+    resources = flatten_dict(gather_resources(
+        label = ctx.label,
+        resources = haskell_attr_resources(ctx),
+        deps = attr_deps(ctx),
+    ).values())
+    resources_hidden = []
+    if resources:
+        resources_hidden.append(create_resource_db(
+            ctx = ctx,
+            name = output.basename + ".resources.json",
+            binary = output,
+            resources = resources,
+        ))
+        for resource in resources.values():
+            resources_hidden.append(resource.default_output)
+            resources_hidden.extend(resource.other_outputs)
+
     if link_style == LinkStyle("shared") or link_group_info != None:
         sos_dir = "__{}__shared_libs_symlink_tree".format(ctx.label.name)
         rpath_ref = get_rpath_origin(get_cxx_toolchain_info(ctx).linker_info.type)
@@ -1945,9 +1976,9 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             shared_libs = sos,
         )
 
-        run = cmd_args(output, hidden = [symlink_dir] + [link_group.lib for link_group in link_group_libs])
+        run = cmd_args(output, hidden = [symlink_dir] + [link_group.lib for link_group in link_group_libs] + resources_hidden)
     else:
-        run = cmd_args(output)
+        run = cmd_args(output, hidden = resources_hidden)
 
     sub_targets = {
         "metadata": [DefaultInfo(default_output = md_file)],
@@ -1962,6 +1993,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         binary = output,
         sub_targets = sub_targets,
         run = run,
+        runtime_files = resources_hidden,
         index_info = HaskellIndexInfo(info = indexing_tsets) if indexing_tsets else None,
     )
 
@@ -2330,7 +2362,7 @@ def haskell_test_impl(ctx: AnalysisContext) -> list[Provider]:
 
     # Add test execution info using the inject_test_run_info function
     providers = [
-        DefaultInfo(exe.binary, sub_targets = exe.sub_targets),
+        DefaultInfo(exe.binary, other_outputs = exe.runtime_files, sub_targets = exe.sub_targets),
     ] + inject_test_run_info(
         ctx,
         ExternalRunnerTestInfo(
