@@ -20,7 +20,7 @@ HaskellLibraryInfo = record(
     # The library target name: e.g. "rts"
     name = str,
     # package config database: e.g. platform009/build/ghc/lib/package.conf.d
-    db = Artifact,
+    db = Artifact | None,
     # package config database, referring to the empty lib which is only used for compilation
     empty_db = Artifact | None,
     # package config database, used for ghc -M

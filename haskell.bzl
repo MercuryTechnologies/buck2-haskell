@@ -825,8 +825,12 @@ def _dynamic_link_shared_impl(
 
     link_args.add(cmd_args(arg.toolchain_libs, prepend = "-package"))
 
+    print("=========== dynamic_link_shared_impl =============")
+    print("arg.worker_target_id = {}".format(arg.worker_target_id))
+    print("all_link_group_ids = {}".format(all_link_group_ids))
     for item in arg.haskell_direct_deps_lib_infos:
         if not item.id in all_link_group_ids:
+            print("item.id = {}".format(item.id))
             link_args.add(cmd_args(item.name, prepend = "-package"))
             link_cmd_hidden.extend(item.libs)
 
@@ -985,7 +989,6 @@ def _build_haskell_lib(
     ))
 
     if link_style == LinkStyle("shared"):
-        lib = ctx.actions.declare_output(lib_short_path)
         objects = [
             object
             for object in compiled.objects
@@ -1011,40 +1014,47 @@ def _build_haskell_lib(
         ]
         link_group_libs = attr_deps_haskell_link_group_infos(ctx)
 
-        ctx.actions.dynamic_output_new(_dynamic_link_shared(
-            pkg_deps = haskell_toolchain.packages.dynamic,
-            extra_libs = extra_libs,
-            extra_lib_dyns = extra_lib_dyns,
-            lib = lib.as_output(),
-            arg = _DynamicLinkSharedOptions(
-                artifact_suffix = artifact_suffix,
-                haskell_toolchain = haskell_toolchain,
-                infos = infos,
-                haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
-                direct_deps_info = direct_deps_info,
-                lib = lib,
-                libfile = libfile,
-                linker_flags = ctx.attrs.linker_flags,
-                linker_info = linker_info,
-                objects = objects,
-                link_group_libs = link_group_libs,
-                toolchain_libs = toolchain_libs,
-                project_libs = project_libs,
-                toolchain_libs_full = toolchain_libs_full,
-                project_libs_full = project_libs_full,
-                worker_target_id = pkgname,
-                link_args = link_args,
-                allow_cache_upload = ctx.attrs.allow_cache_upload,
-            ),
-        ))
+        print("ctx.attrs.can_be_finalized = {}".format(ctx.attrs.can_be_finalized))
+        if ctx.attrs.can_be_finalized:
+            lib = ctx.actions.declare_output(lib_short_path)
+        
+            ctx.actions.dynamic_output_new(_dynamic_link_shared(
+                pkg_deps = haskell_toolchain.packages.dynamic,
+                extra_libs = extra_libs,
+                extra_lib_dyns = extra_lib_dyns,
+                lib = lib.as_output(),
+                arg = _DynamicLinkSharedOptions(
+                    artifact_suffix = artifact_suffix,
+                    haskell_toolchain = haskell_toolchain,
+                    infos = infos,
+                    haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
+                    direct_deps_info = direct_deps_info,
+                    lib = lib,
+                    libfile = libfile,
+                    linker_flags = ctx.attrs.linker_flags,
+                    linker_info = linker_info,
+                    objects = objects,
+                    link_group_libs = link_group_libs,
+                    toolchain_libs = toolchain_libs,
+                    project_libs = project_libs,
+                    toolchain_libs_full = toolchain_libs_full,
+                    project_libs_full = project_libs_full,
+                    worker_target_id = pkgname,
+                    link_args = link_args,
+                    allow_cache_upload = ctx.attrs.allow_cache_upload,
+                ),
+            ))
 
-        extra = []
-
-        solibs[libfile] = LinkedObject(output = lib, unstripped_output = lib)
-        libs = [lib]
-        link_infos = LinkInfos(
-            default = LinkInfo(linkables = [SharedLibLinkable(lib = lib)]),
-        )
+            solibs[libfile] = LinkedObject(output = lib, unstripped_output = lib)
+            libs = [lib]
+            link_infos = LinkInfos(
+                default = LinkInfo(linkables = [SharedLibLinkable(lib = lib)]),
+            )
+        else:
+            libs = []
+            link_infos = LinkInfos(
+                default = LinkInfo(linkables = []),
+            )
 
     else:  # static flavours
         # TODO: avoid making an archive for a single object, like cxx does
@@ -1973,7 +1983,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     #        out = sos_dir,
     #        shared_libs = sos,
     #    )
-
+    #
     #    run = cmd_args(output, hidden = [symlink_dir] + [link_group.lib for link_group in link_group_libs] + resources_hidden)
     #else:
     #    run = cmd_args(output, hidden = resources_hidden)
