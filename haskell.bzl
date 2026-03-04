@@ -414,7 +414,6 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
     haskell_link_infos = HaskellLinkInfo(
         info = hlinkinfos,
         prof_info = prof_hlinkinfos,
-        extra = {},
     )
     haskell_lib_provider = HaskellLibraryProvider(
         lib = hlibinfos,
@@ -750,7 +749,6 @@ HaskellLibBuildOutput = record(
     link_infos = LinkInfos,
     compiled = CompileResultInfo,
     libs = list[Artifact],
-    extra = list[Artifact],
 )
 
 def _get_haskell_shared_library_name_linker_flags(
@@ -1173,7 +1171,6 @@ def _build_haskell_lib(
         link_infos = link_infos,
         compiled = compiled,
         libs = libs,
-        extra = extra,
     )
 
 def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
@@ -1267,7 +1264,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             solibs.update(hlib_build_out.solibs)
             compiled = hlib_build_out.compiled
             libs = hlib_build_out.libs
-            extra[link_style] = hlib_build_out.extra
 
             if enable_profiling:
                 prof_hlib_infos[link_style] = hlib
@@ -1362,7 +1358,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         deps = ctx.attrs.deps,
     )
 
-    default_output = hlib_infos[actual_link_style].libs + extra[actual_link_style]
+    default_output = hlib_infos[actual_link_style].libs
 
     inherited_pp_info = cxx_inherited_preprocessor_infos(attr_deps(ctx))
 
