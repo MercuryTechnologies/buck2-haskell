@@ -29,8 +29,8 @@ HaskellLibraryInfo = record(
     id = str,
     # dynamic dependency information
     dynamic = None | dict[bool, DynamicValue],
-    # Import dirs indexed by profiling enabled/disabled
-    import_dirs = dict[bool, list[Artifact]],
+    # Interface files indexed by profiling enabled/disabled
+    interfaces = dict[bool, list[Artifact]],
     # Object files indexed by profiling enabled/disabled
     objects = dict[bool, list[Artifact]],
     # HIE files indexed by profiling enabled/disabled

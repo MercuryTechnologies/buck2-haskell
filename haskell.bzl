@@ -330,10 +330,10 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             db = ctx.attrs.db,
             empty_db = None,
             deps_db = None,
+            interfaces = {},
             objects = {},
             dependencies = [],
             toolchain_dependencies = [],
-            import_dirs = {},
             hie_files = {},
             stub_dirs = [],
             id = ctx.attrs.id,
@@ -349,10 +349,10 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             db = ctx.attrs.db,
             empty_db = None,
             deps_db = None,
+            interfaces = {},
             objects = {},
             dependencies = [],
             toolchain_dependencies = [],
-            import_dirs = {},
             hie_files = {},
             stub_dirs = [],
             id = ctx.attrs.id,
@@ -1079,7 +1079,7 @@ def _build_haskell_lib(
             True: compiled.module_tsets,
             False: non_profiling_hlib.compiled.module_tsets,
         }
-        import_artifacts = {
+        interface_artifacts = {
             True: compiled.hi,
             False: non_profiling_hlib.compiled.hi,
         }
@@ -1097,7 +1097,7 @@ def _build_haskell_lib(
         dynamic = {
             False: compiled.module_tsets,
         }
-        import_artifacts = {
+        interface_artifacts = {
             False: compiled.hi,
         }
         object_artifacts = {
@@ -1115,7 +1115,7 @@ def _build_haskell_lib(
         pkgname,
         libstem,
         uniq_infos,
-        import_artifacts.keys(),
+        interface_artifacts.keys(),
         enable_profiling = enable_profiling,
         use_empty_lib = False,
         md_file = md_file,
@@ -1126,7 +1126,7 @@ def _build_haskell_lib(
         pkgname,
         None,
         uniq_infos,
-        import_artifacts.keys(),
+        interface_artifacts.keys(),
         enable_profiling = enable_profiling,
         use_empty_lib = True,
         md_file = md_file,
@@ -1137,7 +1137,7 @@ def _build_haskell_lib(
         pkgname,
         None,
         uniq_infos,
-        import_artifacts.keys(),
+        interface_artifacts.keys(),
         enable_profiling = enable_profiling,
         use_empty_lib = True,
         md_file = md_file,
@@ -1151,7 +1151,7 @@ def _build_haskell_lib(
         deps_db = deps_db,
         id = pkgname,
         dynamic = dynamic,  # TODO(ah) refine with dynamic projections
-        import_dirs = import_artifacts,
+        interfaces = interface_artifacts,
         objects = object_artifacts,
         hie_files = hie_artifacts,
         stub_dirs = stub_dirs,
