@@ -204,6 +204,15 @@ def uses_th(opts):
 def determine_module_mapping(ghc_depends, source_prefix):
     result = {}
 
+    # FIXME(jadel): there is a bug in here where if you have an external cell,
+    # the automatically determined source_prefix includes
+    # buck-out/v2/external_cells/git, which breaks this computation.
+    # Note that the v2 part in that can also differ with a different isolation
+    # directory.
+    #
+    # It yields a module_map entry like the following:
+    # "...buck-out.v2.external_cells.git.10f404f5bf5d1ebef18d51f97e7332b2851b5e64.tests.Resources.ResourcesSpec" → "Resources.ResourcesSpec"
+
     for modname, properties in ghc_depends.items():
         sources = list(filter(is_haskell_src, properties.get("sources", [])))
 
