@@ -1358,7 +1358,9 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         deps = ctx.attrs.deps,
     )
 
-    default_output = hlib_infos[actual_link_style].libs
+    hlib_info = hlib_infos[actual_link_style]
+    # default outputs are all module object/interface artifacts of non-profiling flavor.
+    default_outputs_all = hlib_info.objects[False] + hlib_info.interfaces[False]
 
     inherited_pp_info = cxx_inherited_preprocessor_infos(attr_deps(ctx))
 
@@ -1410,7 +1412,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
 
     providers = [
         DefaultInfo(
-            default_outputs = default_output,
+            default_outputs = default_outputs_all,
             sub_targets = sub_targets,
         ),
         HaskellLibraryProvider(
