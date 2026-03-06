@@ -126,6 +126,7 @@ load(
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
+    "HaskellPackageConfInfo",
 )
 load(
     ":link_info.bzl",
@@ -330,6 +331,7 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             db = ctx.attrs.db,
             empty_db = None,
             deps_db = None,
+            conf = HaskellPackageConfInfo(final_conf = None, empty_conf = None, deps_conf = None),
             interfaces = {},
             objects = {},
             dependencies = [],
@@ -349,6 +351,7 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             db = ctx.attrs.db,
             empty_db = None,
             deps_db = None,
+            conf = HaskellPackageConfInfo(final_conf = None, empty_conf = None, deps_conf = None),
             interfaces = {},
             objects = {},
             dependencies = [],
@@ -680,7 +683,7 @@ def _make_package(
         enable_profiling: bool,
         use_empty_lib: bool,
         md_file: Artifact,
-        for_deps: bool = False) -> Artifact:
+        for_deps: bool = False):
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
     if for_deps:
@@ -741,7 +744,7 @@ def _make_package(
         ),
     )
 
-    return db
+    return db, pkg_conf
 
 HaskellLibBuildOutput = record(
     hlib = HaskellLibraryInfo,
@@ -1109,7 +1112,7 @@ def _build_haskell_lib(
         all_libs = libs
         stub_dirs = [compiled.stubs]
 
-    db = _make_package(
+    db, final_conf = _make_package(
         ctx,
         link_style,
         pkgname,
@@ -1120,7 +1123,7 @@ def _build_haskell_lib(
         use_empty_lib = False,
         md_file = md_file,
     )
-    empty_db = _make_package(
+    empty_db, empty_conf = _make_package(
         ctx,
         link_style,
         pkgname,
@@ -1131,7 +1134,7 @@ def _build_haskell_lib(
         use_empty_lib = True,
         md_file = md_file,
     )
-    deps_db = _make_package(
+    deps_db, deps_conf = _make_package(
         ctx,
         link_style,
         pkgname,
@@ -1149,6 +1152,11 @@ def _build_haskell_lib(
         db = db,
         empty_db = empty_db,
         deps_db = deps_db,
+        conf = HaskellPackageConfInfo(
+            final_conf = final_conf,
+            empty_conf = empty_conf,
+            deps_conf = deps_conf,
+        ),
         id = pkgname,
         dynamic = dynamic,  # TODO(ah) refine with dynamic projections
         interfaces = interface_artifacts,

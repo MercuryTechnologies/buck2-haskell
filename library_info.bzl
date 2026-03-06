@@ -15,6 +15,12 @@ load(
     "HaskellToolchainLibrary",
 )
 
+HaskellPackageConfInfo = record(
+    final_conf = Artifact | None,
+    empty_conf = Artifact | None,
+    deps_conf = Artifact | None,
+)
+
 # A record of a Haskell library.
 HaskellLibraryInfo = record(
     # The library target name: e.g. "rts"
@@ -27,6 +33,8 @@ HaskellLibraryInfo = record(
     deps_db = Artifact | None,
     # e.g. "base-4.13.0.0"
     id = str,
+    # conf files
+    conf = HaskellPackageConfInfo,
     # dynamic dependency information
     dynamic = None | dict[bool, DynamicValue],
     # Interface files indexed by profiling enabled/disabled
