@@ -541,6 +541,7 @@ _WritePackageConfOptions = record(
     haskell_toolchain = HaskellToolchainInfo,
     registerer = RunInfo,
     extra_libs = list[Artifact],
+    purpose = str,
 )
 
 def _write_package_conf_impl(
@@ -583,6 +584,7 @@ def _write_package_conf_impl(
 
     toolchain_lib_ids = [info.providers[DynamicHaskellToolchainLibraryInfo].id for info in toolchain_lib_dyn_infos]
 
+
     conf = cmd_args(
         "name: " + arg.pkgname,
         "version: 1.0.0",
@@ -591,8 +593,20 @@ def _write_package_conf_impl(
         "exposed: False",
         "exposed-modules: " + ", ".join(modules),
         "import-dirs:" + ", ".join(import_dirs),
-        "depends: " + ", ".join(toolchain_lib_ids + [lib.id for lib in arg.hlis]),
     )
+
+    def _select_db_conf(lib):
+        if arg.purpose == "deps":
+            return [lib.deps_db, lib.conf.deps_conf]
+        elif arg.purpose == "empty":
+            return [lib.empty_db, lib.conf.empty_conf]
+        else:
+            return [lib.db, lib.conf.final_conf]
+
+    toolchain_deps_args = [cmd_args(id) for id in toolchain_lib_ids]
+    project_deps_args = [cmd_args(lib.id, hidden = _select_db_conf(lib)) for lib in arg.hlis]
+    depends = cmd_args(cmd_args(toolchain_deps_args + project_deps_args, delimiter = ", "), format = "depends: {}")
+    conf.add(depends)
 
     if not arg.use_empty_lib:
         if not libname:
@@ -689,12 +703,15 @@ def _make_package(
     if for_deps:
         pkg_conf = ctx.actions.declare_output("pkg-" + artifact_suffix + "_deps.conf")
         db = ctx.actions.declare_output("db-" + artifact_suffix + "_deps", dir = True)
+        purpose = "deps"
     elif use_empty_lib:
         pkg_conf = ctx.actions.declare_output("pkg-" + artifact_suffix + "_empty.conf")
         db = ctx.actions.declare_output("db-" + artifact_suffix + "_empty", dir = True)
+        purpose = "empty"
     else:
         pkg_conf = ctx.actions.declare_output("pkg-" + artifact_suffix + ".conf")
         db = ctx.actions.declare_output("db-" + artifact_suffix, dir = True)
+        purpose = "final"
 
     link_infos = map_to_link_infos([
         get_link_args_for_strategy(
@@ -730,6 +747,7 @@ def _make_package(
         haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo],
         registerer = ctx.attrs._ghc_pkg_registerer[RunInfo],
         extra_libs = extra_libs,
+        purpose = purpose,
     )
 
     ctx.actions.dynamic_output_new(
