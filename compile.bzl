@@ -803,6 +803,7 @@ CommonCompileModuleArgs = record(
     oneshot_wrapper_args = field(cmd_args),
     package_env_args = field(cmd_args),
     target_deps_args = field(cmd_args),
+    package_db = field(dict[str,HaskellPackageDbTSet]),
 )
 
 def add_worker_args(
@@ -919,8 +920,14 @@ def _categorize_package_deps(
     exposed_package_modules = []
     exposed_package_dbs = []
 
+    # NOTE: This is a temporary workaround since worker-generated md.json file does not have toolchain dep
+    # information correctly. Once that issue is solved, we will remove this line.
+    if is_worker_execute:
+        toolchain_deps = toolchain_deps_by_name.keys()
+
     for dep_pkgname, dep_modules in this_mod_package_deps.items():
-        if dep_pkgname in toolchain_deps_by_name:
+        # NOTE: Same as above, "not is_worker_execute" test should not exist in the end.
+        if not is_worker_execute and dep_pkgname in toolchain_deps_by_name:
             toolchain_deps.append(dep_pkgname)
         elif dep_pkgname in direct_deps_by_name:
             direct_dep = direct_deps_by_name[dep_pkgname]
@@ -1018,6 +1025,11 @@ def _common_compile_module_args(
     pre_args = pre.set.project_as_args("args")
     args_for_file.add(cmd_args(pre_args, format = "-optP={}"))
 
+    if arg.haskell_toolchain.packages:
+        package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
+    else:
+        package_db = []
+
     if is_worker_execute:
         package_env_args = cmd_args()
     else:
@@ -1033,10 +1045,6 @@ def _common_compile_module_args(
         ]
         toolchain_libs = direct_toolchain_libs + libs.reduce("packages")
 
-        if arg.haskell_toolchain.packages:
-            package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
-        else:
-            package_db = []
 
         toolchain_package_db_tset = actions.tset(
             HaskellPackageDbTSet,
@@ -1091,6 +1099,7 @@ def _common_compile_module_args(
         args_for_file = args_for_file,
         package_env_args = package_env_args,
         target_deps_args = target_deps_args,
+        package_db = package_db,
     )
 
 # Arguments for GHC when running in oneshot mode.
@@ -1280,6 +1289,13 @@ def _compile_module(
         is_worker_execute = is_worker_execute,
     )
 
+    toolchain_deps = categorized_package_deps.toolchain_deps
+    hidden_toolchain_deps = []
+    for p in toolchain_deps:
+        pkg = common_args.package_db.get(p)
+        if pkg:
+            hidden_toolchain_deps.append(pkg.value.path)
+
     # Transitive module dependencies from other packages.
     cross_package_modules = actions.tset(
         CompiledModuleTSet,
@@ -1407,7 +1423,7 @@ def _compile_module(
             hidden = [
                 abi_tag.tag_artifacts(dependency_modules.project_as_args("interfaces")),
                 dependency_modules.project_as_args("abi"),
-            ],
+            ] + hidden_toolchain_deps,
         ),
         category = "haskell_compile_" + artifact_suffix.replace("-", "_"),
         identifier = module_name,
