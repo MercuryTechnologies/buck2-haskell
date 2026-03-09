@@ -82,7 +82,7 @@ def src_to_module_name(x: str) -> str:
     return base.replace("/", ".")
 
 def attr_deps(ctx: AnalysisContext) -> list[Dependency]:
-    return ctx.attrs.deps
+    return ctx.attrs.deps + (getattr(ctx.attrs, "deps_query", []) or [])
 
 def attr_deps_haskell_link_infos(ctx: AnalysisContext) -> list[HaskellLinkInfo]:
     return dedupe(filter(
