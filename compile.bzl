@@ -728,7 +728,6 @@ def get_packages_info(
         ],
     )
 
-    package_flag = _package_flag(haskell_toolchain)
     hidden_args = [l for lib in libs.traverse() for l in lib.libs]
     exposed_package_args = cmd_args()
 
