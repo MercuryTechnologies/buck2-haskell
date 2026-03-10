@@ -295,7 +295,7 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
 
     haskell_infos = []
     shared_library_infos = []
-    for dep in ctx.attrs.deps:
+    for dep in attr_deps(ctx):
         used = False
         if HaskellLinkInfo in dep:
             used = True
@@ -457,16 +457,16 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             ctx,
             linkable_node = create_linkable_node(
                 ctx = ctx,
-                exported_deps = ctx.attrs.deps,
+                exported_deps = attr_deps(ctx),
                 link_infos = {_to_lib_output_style(s): v for s, v in link_infos.items()},
                 shared_libs = shared_libs,
                 default_soname = None,
             ),
         ),
-        deps = ctx.attrs.deps,
+        deps = attr_deps(ctx),
     )
 
-    inherited_pp_info = cxx_inherited_preprocessor_infos(ctx.attrs.deps)
+    inherited_pp_info = cxx_inherited_preprocessor_infos(attr_deps(ctx))
     own_pp_info = CPreprocessor(
         args = CPreprocessorArgs(args = flatten([["-isystem", d] for d in ctx.attrs.cxx_header_dirs])),
     )
@@ -480,7 +480,7 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             shared_libs,
             shared_library_infos,
         ),
-        merge_link_group_lib_info(deps = ctx.attrs.deps),
+        merge_link_group_lib_info(deps = attr_deps(ctx)),
         haskell_link_infos,
         merged_link_info,
         HaskellProfLinkInfo(
@@ -490,7 +490,7 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
         ResourceInfo(resources = gather_resources(
             label = ctx.label,
             resources = haskell_attr_resources(ctx),
-            deps = ctx.attrs.deps,
+            deps = attr_deps(ctx),
         )),
     ]
 
@@ -1374,14 +1374,14 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             linkable_node = create_linkable_node(
                 ctx = ctx,
                 preferred_linkage = preferred_linkage,
-                exported_deps = ctx.attrs.deps,
+                exported_deps = attr_deps(ctx),
                 link_infos = {_to_lib_output_style(s): v for s, v in link_infos.items()},
                 shared_libs = shared_libs,
                 # TODO(cjhopman): this should be set to non-None
                 default_soname = None,
             ),
         ),
-        deps = ctx.attrs.deps,
+        deps = attr_deps(ctx),
     )
 
     default_output = hlib_infos[actual_link_style].libs
@@ -1734,7 +1734,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
 
-    toolchain_libs = [dep[HaskellToolchainLibrary].name for dep in ctx.attrs.deps if HaskellToolchainLibrary in dep]
+    toolchain_libs = [dep[HaskellToolchainLibrary].name for dep in attr_deps(ctx) if HaskellToolchainLibrary in dep]
 
     output = ctx.actions.declare_output(ctx.label.name)
     link_args = cmd_args()
@@ -1955,7 +1955,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
         output = output.as_output(),
         arg = _DynamicLinkBinaryOptions(
-            deps = ctx.attrs.deps,
+            deps = attr_deps(ctx),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
             enable_profiling = enable_profiling,
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
@@ -2348,7 +2348,7 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
     linker_info = ctx.attrs._cxx_toolchain[CxxToolchainInfo].linker_info
 
-    hlibs = [l.get(HaskellLibraryProvider).lib[link_style] for l in ctx.attrs.deps]
+    hlibs = [l.get(HaskellLibraryProvider).lib[link_style] for l in attr_deps(ctx)]
     direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos(ctx)]
 
     results = make_haskell_link_group(

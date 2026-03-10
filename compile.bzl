@@ -655,8 +655,8 @@ def target_metadata(
                     is_worker_execute = is_worker_execute,
                 ),
                 toolchain_libs = toolchain_libs,
-                deps = ctx.attrs.deps,
-                use_worker = ctx.attrs.allow_worker and haskell_toolchain.use_worker
+                deps = attr_deps(ctx),
+                use_worker = ctx.attrs.allow_worker and haskell_toolchain.use_worker,
             ),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
@@ -1902,7 +1902,7 @@ def compile(
             artifact_suffix = artifact_suffix,
             compiler_flags = ctx.attrs.compiler_flags,
             ghc_rts_flags = ctx.attrs.ghc_rts_flags,
-            deps = ctx.attrs.deps,
+            deps = attr_deps(ctx),
             direct_deps_info = direct_deps_info,
             # though this is redundant. for now let's pass them.
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
