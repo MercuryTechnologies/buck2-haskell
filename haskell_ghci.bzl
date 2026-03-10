@@ -579,7 +579,7 @@ def _first_order_haskell_deps(
         ctx: AnalysisContext,
         enable_profiling: bool) -> list[HaskellLibraryInfo]:
     libs = []
-    for dep in ctx.attrs.deps:
+    for dep in attr_deps(ctx):
         if HaskellLibraryProvider in dep:
             if enable_profiling:
                 libs.append(dep[HaskellLibraryProvider].prof_lib.values())
