@@ -747,7 +747,7 @@ def get_packages_info(
         packagedb_set[get_db(lib)] = None
         if not for_deps:
             hidden_args = cmd_args(hidden = [
-                lib.import_dirs.values(),
+                lib.interfaces.values(),
                 lib.stub_dirs,
                 lib.libs,
             ])
