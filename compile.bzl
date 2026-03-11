@@ -893,18 +893,22 @@ def _direct_dep_compile_result(dep: _DirectDep) -> DynamicCompileResultInfo:
     return dep[1].providers[DynamicCompileResultInfo]
 
 _IndexedPackageDeps = record(
+    # this will be deprecated.
     toolchain_deps = list[str],
-    library_deps = list[str],
+    # this unified package_deps will be used later on.
+    package_deps = list[str],
     exposed_package_modules = list[CompiledModuleTSet],
     exposed_package_dbs = list[Artifact],
 )
+
+# Module dependency graph transitive sets including package deps as leaves
+ModGraphTSet = transitive_set()
 
 def _categorize_package_deps(
         *,
         module_name: str,
         this_package_name: str,
-        this_mod_package_deps: dict[str, list[str]], # `dict[pkgname, list[modname]]`,
-        package_deps: dict[str, dict[str, list[str]]], # `dict[modname, dict[pkgname, list[modname]]`
+        graph_set: dict[str, ModGraphTSet],
         module_graph: dict[str, list[str]],
         module_tsets: dict[str, CompiledModuleTSet],
         direct_deps_by_name: dict[str, _DirectDep],
@@ -915,47 +919,36 @@ def _categorize_package_deps(
         module_name: For error messages.
     """
     toolchain_deps = []
-    library_deps = []
     exposed_package_modules = []
     exposed_package_dbs = []
+    package_deps = []
 
     # NOTE: This is a temporary workaround since worker-generated md.json file does not have toolchain dep
     # information correctly. Once that issue is solved, we will remove this line.
     if is_worker_execute:
         toolchain_deps = toolchain_deps_by_name.keys()
 
-    for dep_pkgname, dep_modules in this_mod_package_deps.items():
-        # NOTE: Same as above, "not is_worker_execute" test should not exist in the end.
-        if not is_worker_execute and dep_pkgname in toolchain_deps_by_name:
-            toolchain_deps.append(dep_pkgname)
-        elif dep_pkgname in direct_deps_by_name:
-            direct_dep = direct_deps_by_name[dep_pkgname]
+    if graph_set.get(module_name):
+        tset = graph_set.get(module_name)
+        for (dep_pkgname, dep_modules) in tset.value[1].items():
+            if not is_worker_execute and dep_pkgname in toolchain_deps_by_name:
+                toolchain_deps.append(dep_pkgname)
+            elif dep_pkgname in direct_deps_by_name:
+                direct_dep = direct_deps_by_name[dep_pkgname]
 
-            library_deps.append(dep_pkgname)
-            exposed_package_dbs.append(_direct_dep_artifact(direct_dep))
+                exposed_package_dbs.append(_direct_dep_artifact(direct_dep))
 
-            for dep_modname in dep_modules:
-                exposed_package_modules.append(_direct_dep_compile_result(direct_dep).modules[dep_modname])
-        else:
-            fail("Unknown library dependency '{}' for module '{}'. Add the library to the `deps` attribute".format(dep_pkgname, module_name))
-
-    # NOTE: currently, worker does not care about the transitive module level package deps, and this cause performance regression
-    # But these -package arguments should be the same as non-worker one-shot mode to extract extra-libraries from package db,
-    # so eventually when that implementation is made, this needs to be restored and then correctly with Transitive Set (for performance).
-    if not is_worker_execute:
-        mod_deps = module_graph[module_name]
-
-        this_package_tsets = [module_tsets.get(mod_dep) for mod_dep in mod_deps if module_tsets.get(mod_dep)]
-
-        for tset in this_package_tsets:
-           for m in tset.traverse():
-               if m.package == this_package_name:
-                   library_deps.extend(package_deps.get(m.name, {}).keys())
-        library_deps = dedupe(library_deps)
+                for dep_modname in dep_modules:
+                    exposed_package_modules.append(_direct_dep_compile_result(direct_dep).modules[dep_modname])
+            else:
+                fail("Unknown library dependency '{}' for module '{}'. Add the library to the `deps` attribute".format(dep_pkgname, module_name))
+        for (p, _) in tset.traverse():
+            if p[0] == "_":
+                package_deps.append(p[1:])
 
     return _IndexedPackageDeps(
         toolchain_deps = toolchain_deps,
-        library_deps = library_deps,
+        package_deps = package_deps,
         exposed_package_modules = exposed_package_modules,
         exposed_package_dbs = exposed_package_dbs,
     )
@@ -1113,8 +1106,7 @@ def _compile_oneshot_args(
         md_file: Artifact,
         outputs: dict[Artifact, OutputArtifact],
         artifact_suffix: str,
-        library_deps: list[str],
-        toolchain_deps: list[str],
+        package_deps: list[str],
         packagedb_tag: ArtifactTag) -> cmd_args:
     args = cmd_args()
     args.add(packagedb_tag.tag_artifacts(common_args.package_env_args))
@@ -1156,8 +1148,7 @@ def _compile_oneshot_args(
         ),
     )
 
-    args.add(cmd_args(library_deps, prepend = "-package"))
-    args.add(cmd_args(toolchain_deps, prepend = "-package"))
+    args.add(cmd_args(package_deps, prepend = "-package"))
 
     args.add(module.source)
     return args
@@ -1260,8 +1251,7 @@ def _compile_module(
         module_tsets: dict[str, CompiledModuleTSet],
         md_file: Artifact,
         graph: dict[str, list[str]],
-        this_mod_package_deps: dict[str, list[str]],  # `dict[pkgname, list[modname]]`
-        package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
+        graph_set: dict[str, ModGraphTSet],
         outputs: dict[Artifact, OutputArtifact],
         artifact_suffix: str,
         direct_deps_by_name: dict[str, typing.Any],
@@ -1279,8 +1269,7 @@ def _compile_module(
     categorized_package_deps = _categorize_package_deps(
         module_name = module_name,
         this_package_name = common_args.pkgname,
-        this_mod_package_deps = this_mod_package_deps,
-        package_deps = package_deps,
+        graph_set = graph_set,
         module_graph = graph,
         module_tsets = module_tsets,
         direct_deps_by_name = direct_deps_by_name,
@@ -1367,8 +1356,7 @@ def _compile_module(
             md_file = md_file,
             outputs = outputs,
             artifact_suffix = artifact_suffix,
-            library_deps = categorized_package_deps.library_deps,
-            toolchain_deps = categorized_package_deps.toolchain_deps,
+            package_deps = categorized_package_deps.package_deps,
             packagedb_tag = packagedb_tag,
         ))
 
@@ -1470,16 +1458,10 @@ def _compile_incr(
         mapped_modules: dict[str, _Module],
         th_modules: list[str],
         package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
+        graph_set: dict[str, ModGraphTSet],
         direct_deps_by_name: dict[str, _DirectDep],
         outputs: dict[Artifact, OutputArtifact]) -> None:
     is_worker_execute = arg.allow_worker and arg.haskell_toolchain.use_worker
-
-    # When using worker, package_deps is not used, and passing the parameter is very expensive,
-    # so a dummy one is passed.
-    if is_worker_execute:
-        package_deps_1 = {}
-    else:
-        package_deps_1 = package_deps
 
     for module_name in post_order_traversal(graph):
         module = _get_module_from_map(mapped_modules, module_name)
@@ -1498,8 +1480,7 @@ def _compile_incr(
             module = module,
             module_tsets = module_tsets,
             graph = graph,
-            this_mod_package_deps = package_deps.get(module_name, {}),
-            package_deps = package_deps_1,
+            graph_set = graph_set,
             outputs = outputs,
             md_file = arg.md_file,
             artifact_suffix = arg.artifact_suffix,
@@ -1627,8 +1608,7 @@ def compile_args(
 def _make_module_tsets_non_incr(
         actions: AnalysisActions,
         module: _Module,
-        this_mod_package_deps: dict[str, list[str]],  # `dict[pkgname, list[modname]]`
-        package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
+        graph_set: dict[str, ModGraphTSet],
         module_graph: dict[str, list[str]],
         toolchain_deps_by_name: dict[str, None],
         direct_deps_by_name: dict[str, _DirectDep],
@@ -1637,8 +1617,7 @@ def _make_module_tsets_non_incr(
     categorized_package_deps = _categorize_package_deps(
         module_name = name,
         this_package_name = pkgname,
-        this_mod_package_deps = this_mod_package_deps,
-        package_deps = package_deps,
+        graph_set = graph_set,
         module_graph = module_graph,
         module_tsets = {},
         direct_deps_by_name = direct_deps_by_name,
@@ -1678,6 +1657,7 @@ def _compile_non_incr(
         mapped_modules: dict[str, _Module],
         th_modules: list[str],
         package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
+        graph_set: dict[str, ModGraphTSet],
         direct_deps_by_name: dict[str, _DirectDep],
         outputs: dict[Artifact, OutputArtifact]) -> None:
     haskell_toolchain = arg.haskell_toolchain
@@ -1716,8 +1696,7 @@ def _compile_non_incr(
         module_tsets[module_name] = _make_module_tsets_non_incr(
             actions,
             module = module,
-            this_mod_package_deps = package_deps.get(module_name, {}),
-            package_deps = package_deps,
+            graph_set = graph_set,
             module_graph = graph,
             toolchain_deps_by_name = arg.toolchain_deps_by_name,
             direct_deps_by_name = direct_deps_by_name,
@@ -1768,11 +1747,44 @@ def _dynamic_do_compile_impl(
     md = md_file.read_json()
     th_modules = md["th_modules"]
     module_map = md["module_mapping"]
-    graph = md["module_graph"]
+    module_graph = md["module_graph"]
     package_deps = md["package_deps"]
 
     mapped_modules = {module_map.get(k, k): v for k, v in arg.modules.items()}
     module_tsets = {}
+
+    # NOTE: This function needs to be defined as internal function since the
+    # free variables, module_graph and package_deps, are shared captured state
+    # in the recursive function closure. Due to the limitation of Starlark,
+    # if they are passed around as arguments alternatively like normal functional
+    # programming language, then the performance gets very bad.
+    def _create_graph_set(module_name: str) -> ModGraphTSet:
+        if graph_set.get(module_name):
+            return graph_set.get(module_name)
+        else:
+            deps = module_graph.get(module_name, [])
+            children = []
+            mod_pkg_deps = package_deps.get(module_name, {})
+            for pkg in mod_pkg_deps.keys():
+                pkg_key = "_" + pkg
+                if graph_set.get(pkg_key):
+                    pkg_tset = graph_set.get(pkg_key)
+                else:
+                    pkg_tset = actions.tset(ModGraphTSet, value = (pkg_key, {}), children = [])
+                    graph_set[pkg_key] = pkg_tset
+                children.append(pkg_tset)
+
+            if deps:  # not leaf
+                for dep in deps:
+                   dep_tset = _create_graph_set(dep)
+                   children.append(dep_tset)
+            tset = actions.tset(ModGraphTSet, value = (module_name, mod_pkg_deps), children = children)
+            graph_set[module_name] = tset
+            return tset
+
+    graph_set = {}
+    for m in module_graph.keys():
+        xs = _create_graph_set(m)
 
     if incremental:
         _compile_incr(
@@ -1780,10 +1792,11 @@ def _dynamic_do_compile_impl(
             module_tsets,
             arg,
             common_args,
-            graph,
+            module_graph,
             mapped_modules,
             th_modules,
             package_deps,
+            graph_set,
             direct_deps_by_name,
             outputs,
         )
@@ -1793,10 +1806,11 @@ def _dynamic_do_compile_impl(
             module_tsets,
             arg,
             common_args,
-            graph,
+            module_graph,
             mapped_modules,
             th_modules,
             package_deps,
+            graph_set,
             direct_deps_by_name,
             outputs,
         )
