@@ -1571,6 +1571,7 @@ _DynamicLinkBinaryOptions = record(
     haskell_toolchain = HaskellToolchainInfo,
     link_args = cmd_args,
     link_style = LinkStyle,
+    link_haskell_objects_at_once = bool,
     linker_flags = list[typing.Any],  # Arguments.
     direct_deps_info = list[HaskellLibraryInfoTSet],
     link_group_libs = list[HaskellLinkGroupInfo],
@@ -1583,6 +1584,7 @@ def _dynamic_link_binary_impl(
         pkg_deps: ResolvedDynamicValue,
         output: OutputArtifact,
         arg: _DynamicLinkBinaryOptions) -> list[Provider]:
+
     link_args = arg.link_args.copy()  # link is already frozen, make a copy
     link_cmd_hidden = []
 
@@ -1602,30 +1604,59 @@ def _dynamic_link_binary_impl(
     )
 
     packagedb_args = cmd_args()
+    package_args = cmd_args()
+    object_args = cmd_args()
 
-    for d in list(libs.traverse()):
-        if d.name in all_link_group_ids:
-            packagedb_args.add(cmd_args(d.empty_db))
-        else:
-            packagedb_args.add(cmd_args(d.db))
-    for lg in arg.link_group_libs:
-        packagedb_args.add(cmd_args(lg.db))
+    # toolchain libs
     packagedb_args.add(toolchain_package_db_tset.project_as_args("package_db"))
-
-    link_args.add(cmd_args(packagedb_args, prepend = "-package-db"))
-
-    link_args.add(cmd_args(arg.toolchain_libs, prepend = "-package"))
-    for item in arg.haskell_direct_deps_lib_infos:
-        if not item.id in all_link_group_ids:
-            link_args.add(cmd_args(item.name, prepend = "-package"))
-            link_cmd_hidden.append(item.libs)
+    package_args.add(arg.toolchain_libs)
 
     # link group
     # NOTE: link group for executable is currently only relevant to LinkStyle("shared")
+    # NOTE: link group is not affected by link_haskell_objects_at_once.
+    for lg in arg.link_group_libs:
+        packagedb_args.add(cmd_args(lg.db))
     if arg.link_style == LinkStyle("shared"):
         for lg in arg.link_group_libs:
-            link_args.add("-package", lg.pkgname)
+            package_args.add(lg.pkgname)
             link_cmd_hidden.append(lg.lib)
+
+    # NOTE: If link_haskell_objects_at_once = True, all the transitive dependency objects
+    # (except for those from haskell_link_group) are directly linked at executable binary
+    # linking. Therefore, we set package db dependencies to use empty_db (module-object-only
+    # packages)
+    if arg.link_haskell_objects_at_once:  # when link_haskell_objects_at_once = True
+        for d in list(libs.traverse()):
+            packagedb_args.add(cmd_args(d.empty_db))
+
+        for item in arg.haskell_direct_deps_lib_infos:
+            if not item.id in all_link_group_ids:
+                package_args.add(item.name)
+                link_cmd_hidden.append(item.libs)
+
+        # Add all the transitive objects except for those in link group.
+        tset = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
+        for hlib in tset.traverse():
+            # for now, only non-profiled binary
+            is_profiled = False
+            if hlib.name not in all_link_group_ids:
+                object_args.add(hlib.objects[is_profiled])
+
+    else:  # when link_haskell_objects_at_once = False
+        for d in list(libs.traverse()):
+            if d.name in all_link_group_ids:
+                packagedb_args.add(cmd_args(d.empty_db))
+            else:
+                packagedb_args.add(cmd_args(d.db))
+
+        for item in arg.haskell_direct_deps_lib_infos:
+            if not item.id in all_link_group_ids:
+                package_args.add(item.name)
+                link_cmd_hidden.append(item.libs)
+
+    link_args.add(cmd_args(packagedb_args, prepend = "-package-db"))
+    link_args.add(cmd_args(package_args, prepend = "-package"))
+    link_args.add(object_args)
 
     # Ensure that Buck2 knows we need all of the transitive library
     # dependencies built before we can run this link command.
@@ -1962,6 +1993,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             haskell_toolchain = haskell_toolchain,
             link_args = link_args,
             link_style = link_style,
+            link_haskell_objects_at_once = ctx.attrs.link_haskell_objects_at_once,
             linker_flags = ctx.attrs.linker_flags,
             direct_deps_info = direct_deps_info,
             link_group_libs = link_group_libs,

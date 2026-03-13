@@ -235,6 +235,23 @@ _common_binary_attrs = (
         "platform": attrs.option(attrs.string(), default = None),
         "platform_linker_flags": attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.arg())), default = []),
         "allow_worker": attrs.bool(default = True),
+        "link_haskell_objects_at_once": attrs.bool(
+            default = False,
+            doc = """
+    Linking all of Haskell modules for the binary target and its in-project
+    transitive dependencies as bare objects, not as aggregated libraries.
+
+    In case of many granular target dependencies, say 1000 haskell_library
+    deps for a given dynamic executable, the dynamic library loading time
+    can be painfully big, so deferring the component object linking until
+    the final executable link time is desirable.
+
+    This is in the same vein as haskell_link_group (can be thought as
+    haskell_binary counterpart to that). So the flag exempts the objects
+    that are already included in haskell_link_group deps of the current
+    target binary.
+""",
+        ),
 
         # extra needed (from rules_impl.bzl)
         "auto_link_groups": attrs.bool(default = False),
