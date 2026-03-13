@@ -235,6 +235,7 @@ _common_binary_attrs = (
         "platform": attrs.option(attrs.string(), default = None),
         "platform_linker_flags": attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.arg())), default = []),
         "allow_worker": attrs.bool(default = True),
+        "link_haskell_objects_at_once": attrs.bool(default = False),
 
         # extra needed (from rules_impl.bzl)
         "auto_link_groups": attrs.bool(default = False),
