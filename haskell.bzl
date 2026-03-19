@@ -2365,7 +2365,11 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
     linker_info = ctx.attrs._cxx_toolchain[CxxToolchainInfo].linker_info
 
-    hlibs = [l.get(HaskellLibraryProvider).lib[link_style] for l in attr_deps(ctx)]
+    hlibs = []
+    for l in attr_deps(ctx):
+        hlib = l.get(HaskellLibraryProvider)
+        if hlib:
+            hlibs.append(hlib.lib[link_style])
     direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos(ctx)]
 
     results = make_haskell_link_group(
@@ -2378,6 +2382,7 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
         registerer = registerer,
         haskell_toolchain = haskell_toolchain,
         linker_info = linker_info,
+        allow_cache_upload = ctx.attrs.allow_cache_upload,
     )
     return results
 

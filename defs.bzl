@@ -465,6 +465,8 @@ haskell_link_group = rule(
         ),
 
         # extra needed (from rules_impl.bzl)
+        "preferred_linkage": attrs.enum(Linkage.values(), default = "any"),
+        "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
         "_cxx_toolchain": toolchains_common.cxx(),
         "_haskell_toolchain": haskell_toolchain(),
     },
