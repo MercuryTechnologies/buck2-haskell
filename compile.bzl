@@ -33,7 +33,7 @@ load(
 )
 load(
     ":link_info.bzl",
-    "HaskellLinkGroupInfo",
+    "HaskellLinkGroupProvider",
     "HaskellLinkInfo",
 )
 load(
@@ -47,7 +47,7 @@ load(
     ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_lib_infos",
-    "attr_deps_haskell_link_group_infos",
+    "attr_deps_haskell_link_group_providers",
     "attr_deps_haskell_link_infos",
     "attr_deps_haskell_toolchain_libraries",
     "get_artifact_suffix",
@@ -179,7 +179,7 @@ _DynamicDoCompileOptions = record(
     allow_worker = bool,
     is_worker_execute = bool,
     allow_cache_upload = bool,
-    link_group_libs = list[HaskellLinkGroupInfo],
+    link_group_libs = list[HaskellLinkGroupProvider],
 )
 
 def _strip_prefix(prefix: str, s: str) -> str:
@@ -1507,7 +1507,7 @@ def compile_args(
         haskell_direct_deps_lib_infos: list[HaskellLibraryInfo],
         package_env_args: cmd_args,
         target_deps_args: cmd_args,
-        link_group_libs: list[HaskellLinkGroupInfo],
+        link_group_libs: list[HaskellLinkGroupProvider],
         pkgname = None,
         suffix: str = "") -> cmd_args:
     args = cmd_args()
@@ -1940,7 +1940,7 @@ def compile(
             allow_worker = ctx.attrs.allow_worker,
             is_worker_execute = is_worker_execute,
             allow_cache_upload = ctx.attrs.allow_cache_upload,
-            link_group_libs = attr_deps_haskell_link_group_infos(ctx),
+            link_group_libs = attr_deps_haskell_link_group_providers(ctx),
         ),
     ))
 

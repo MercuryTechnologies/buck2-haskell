@@ -132,7 +132,7 @@ load(
     ":link_info.bzl",
     "ExtraGhcLinkerFlagsInfo",
     "GhcLinkableInfo",
-    "HaskellLinkGroupInfo",
+    "HaskellLinkGroupProvider",
     "HaskellLinkInfo",
     "HaskellProfLinkInfo",
     "attr_link_style",
@@ -152,7 +152,7 @@ load(
     ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_lib_infos",
-    "attr_deps_haskell_link_group_infos",
+    "attr_deps_haskell_link_group_providers",
     "attr_deps_haskell_link_infos",
     "attr_deps_haskell_link_infos_sans_template_deps",
     "attr_deps_haskell_toolchain_libraries",
@@ -798,7 +798,7 @@ _DynamicLinkSharedOptions = record(
     linker_flags = list[typing.Any],  # args
     linker_info = LinkerInfo,
     objects = list[Artifact],
-    link_group_libs = list[HaskellLinkGroupInfo],
+    link_group_libs = list[HaskellLinkGroupProvider],
     toolchain_libs = list[str],
     project_libs = list[str],
     toolchain_libs_full = list[HaskellToolchainLibrary],
@@ -1031,7 +1031,7 @@ def _build_haskell_lib(
             lib.prof_info[link_style] if enable_profiling else lib.info[link_style]
             for lib in attr_deps_haskell_link_infos(ctx)
         ]
-        link_group_libs = attr_deps_haskell_link_group_infos(ctx)
+        link_group_libs = attr_deps_haskell_link_group_providers(ctx)
 
         ctx.actions.dynamic_output_new(_dynamic_link_shared(
             pkg_deps = haskell_toolchain.packages.dynamic,
@@ -1566,7 +1566,7 @@ _DynamicLinkBinaryOptions = record(
     link_haskell_objects_at_once = bool,
     linker_flags = list[typing.Any],  # Arguments.
     direct_deps_info = list[HaskellLibraryInfoTSet],
-    link_group_libs = list[HaskellLinkGroupInfo],
+    link_group_libs = list[HaskellLinkGroupProvider],
     toolchain_libs = list[str],
     allow_cache_upload = bool,
 )
@@ -1971,7 +1971,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         lib.prof_info[link_style] if enable_profiling else lib.info[link_style]
         for lib in attr_deps_haskell_link_infos(ctx)
     ]
-    link_group_libs = attr_deps_haskell_link_group_infos(ctx)
+    link_group_libs = attr_deps_haskell_link_group_providers(ctx)
 
     ctx.actions.dynamic_output_new(_dynamic_link_binary(
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
@@ -2348,7 +2348,7 @@ def make_haskell_link_group(
 
     return [
         DefaultInfo(default_outputs = [lib]),
-        HaskellLinkGroupInfo(
+        HaskellLinkGroupProvider(
             pkgname = pkgname,
             db = db,
             lib = lib,

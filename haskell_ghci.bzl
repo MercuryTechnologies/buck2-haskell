@@ -64,10 +64,6 @@ load(
     "HaskellLibraryProvider",
 )
 load(
-    ":link_info.bzl",
-    "HaskellLinkGroupInfo",
-)
-load(
     ":toolchain.bzl",
     "DynamicHaskellPackageDbInfo",
     "HaskellPackageDbTSet",
@@ -77,7 +73,7 @@ load(
     ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_lib_infos",
-    "attr_deps_haskell_link_group_infos",
+    "attr_deps_haskell_link_group_providers",
     "attr_deps_haskell_link_infos",
     "get_artifact_suffix",
 )
@@ -706,7 +702,7 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         pkg_deps = None,
     )
 
-    link_group_libs = attr_deps_haskell_link_group_infos(ctx)
+    link_group_libs = attr_deps_haskell_link_group_providers(ctx)
     all_link_group_ids = [l.id for lg in link_group_libs for l in lg.libraries]
 
     toolchain_libs = packages_info.transitive_deps.reduce("packages")

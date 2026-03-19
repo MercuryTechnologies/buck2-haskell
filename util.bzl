@@ -27,7 +27,7 @@ load(
 )
 load(
     ":link_info.bzl",
-    "HaskellLinkGroupInfo",
+    "HaskellLinkGroupProvider",
     "HaskellLinkInfo",
     "HaskellProfLinkInfo",
 )
@@ -93,11 +93,11 @@ def attr_deps_haskell_link_infos(ctx: AnalysisContext) -> list[HaskellLinkInfo]:
         ],
     ))
 
-def attr_deps_haskell_link_group_infos(ctx: AnalysisContext) -> list[HaskellLinkGroupInfo]:
+def attr_deps_haskell_link_group_providers(ctx: AnalysisContext) -> list[HaskellLinkGroupProvider]:
     return dedupe(filter(
         None,
         [
-            d.get(HaskellLinkGroupInfo)
+            d.get(HaskellLinkGroupProvider)
             for d in attr_deps(ctx)
         ],
     ))

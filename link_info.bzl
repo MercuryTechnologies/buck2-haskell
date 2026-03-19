@@ -39,7 +39,7 @@ HaskellProfLinkInfo = provider(
     },
 )
 
-HaskellLinkGroupInfo = provider(
+HaskellLinkGroupProvider = provider(
     fields = {
         "pkgname": provider_field(str),
         "db": provider_field(Artifact),
