@@ -217,3 +217,22 @@ def get_source_prefixes(srcs: list[Artifact], module_map: dict[str, str]) -> lis
         source_prefixes[prefix] = None
 
     return source_prefixes.keys()
+
+def make_haskell_names_from_label(
+        label: Label,
+        use_same_package_name: bool,
+    ) -> (str, str):
+    if use_same_package_name:
+        libname = label.name
+        pkgname = libname
+    else:
+        libprefix = repr(label.path).replace("//", "_").replace("/", "_").replace(".", "_")
+
+        # avoid consecutive "--" in package name, which is not allowed by ghc-pkg.
+        if libprefix[-1] == "_":
+            libname0 = libprefix + label.name.replace(".", "_")
+        else:
+            libname0 = libprefix + "_" + label.name.replace(".", "_")
+        pkgname = libname0.replace("_", "-")
+        libname = "HS" + pkgname
+    return (pkgname, libname)

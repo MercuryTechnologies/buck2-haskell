@@ -163,6 +163,7 @@ load(
     "get_source_prefixes",
     "is_haskell_boot",
     "is_haskell_src",
+    "make_haskell_names_from_label",
     "output_extensions",
     "src_to_module_name",
     "srcs_to_pairs",
@@ -1223,19 +1224,10 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     sub_targets = {}
     extra = {}
 
-    if ctx.attrs.use_same_package_name:
-        libname = ctx.label.name
-        pkgname = libname
-    else:
-        libprefix = repr(ctx.label.path).replace("//", "_").replace("/", "_")
-
-        # avoid consecutive "--" in package name, which is not allowed by ghc-pkg.
-        if libprefix[-1] == "_":
-            libname0 = libprefix + ctx.label.name
-        else:
-            libname0 = libprefix + "_" + ctx.label.name
-        pkgname = libname0.replace("_", "-")
-        libname = "HS" + pkgname
+    (pkgname, libname) = make_haskell_names_from_label(
+        ctx.label,
+        ctx.attrs.use_same_package_name,
+    )
 
     worker = ctx.attrs._worker[WorkerInfo] if ctx.attrs._worker else None
 
@@ -1747,9 +1739,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         worker = worker,
     )
 
-    # Provisional hack to have a worker ID
-    libname = repr(ctx.label.path).replace("//", "_").replace("/", "_") + "_" + ctx.label.name
-    pkgname = libname.replace("_", "-")
+    (pkgname, libname) = make_haskell_names_from_label(ctx.label, False)
 
     compiled = compile(
         ctx,
@@ -1950,7 +1940,8 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         linfos = [x.prof_info if enable_profiling else x.info for x in hlis]
         uniq_infos = [x[link_style].value for x in linfos]
 
-        pkgname = ctx.label.name.replace("_", "-") + "-link"
+        (pkgname0, _) = make_haskell_names_from_label(ctx.label, False)
+        pkgname = pkgname0 + "-link"
         linkable_artifacts = [
             f.archive.artifact
             for link in infos.tset.infos.traverse(ordering = "topological")
@@ -2284,13 +2275,7 @@ def make_haskell_link_group(
 
     libprefix = repr(label.path).replace("//", "_").replace("/", "_")
 
-    # avoid consecutive "--" in package name, which is not allowed by ghc-pkg.
-    if libprefix[-1] == "_":
-        libname0 = libprefix + label.name
-    else:
-        libname0 = libprefix + "_" + label.name
-    pkgname = libname0.replace("_", "-")
-    libname = "HS" + pkgname
+    (pkgname, libname) = make_haskell_names_from_label(label, False)
 
     libstem = libname
     if link_style == LinkStyle("shared"):
