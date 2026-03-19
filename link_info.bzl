@@ -14,6 +14,7 @@ load(
     "LinkStyle",
 )
 load("@prelude//utils:arglike.bzl", "ArgLike")
+load("@prelude//utils:utils.bzl", "flatten")
 load(
     ":library_info.bzl",
     "HaskellLibraryInfo",
@@ -39,12 +40,50 @@ HaskellProfLinkInfo = provider(
     },
 )
 
+# Provider for HaskellLinkGroup information
+
 HaskellLinkGroupProvider = provider(
     fields = {
         "pkgname": provider_field(str),
         "db": provider_field(Artifact),
         "lib": provider_field(Artifact),
         "libraries": provider_field(list[HaskellLibraryInfo]),
+    },
+)
+
+def _project_as_package_db(lg: HaskellLinkGroupProvider) -> cmd_args:
+    return cmd_args(lg.db)
+
+def _project_as_package(lg: HaskellLinkGroupProvider) -> cmd_args:
+    return cmd_args(lg.pkgname, hidden = [lg.lib])
+
+def _get_link_group_deps(children: list[list[str]], lg: HaskellLinkGroupProvider | None) -> list[str]:
+    flatted = flatten(children)
+    if lg:
+        flatted.append(lg.pkgname)
+    return flatted
+
+def _get_components(children: list[list[str]], lg: HaskellLinkGroupProvider | None) -> list[str]:
+    flatted = flatten(children)
+    if lg:
+        libs = [ l.name for l in lg.libraries ]
+        flatted.extend(libs)
+    return flatted
+
+HaskellLinkGroupTSet = transitive_set(
+    args_projections = {
+        "package_db": _project_as_package_db,
+        "package": _project_as_package,
+    },
+    reductions = {
+        "link_group_deps": _get_link_group_deps,
+        "components": _get_components,
+    },
+)
+
+HaskellLinkGroupTSetProvider = provider(
+    fields = {
+        "link_group_tsets": provider_field(HaskellLinkGroupTSet),
     },
 )
 

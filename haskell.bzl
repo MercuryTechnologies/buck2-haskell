@@ -133,6 +133,8 @@ load(
     "ExtraGhcLinkerFlagsInfo",
     "GhcLinkableInfo",
     "HaskellLinkGroupProvider",
+    "HaskellLinkGroupTSet",
+    "HaskellLinkGroupTSetProvider",
     "HaskellLinkInfo",
     "HaskellProfLinkInfo",
     "attr_link_style",
@@ -153,6 +155,7 @@ load(
     "attr_deps",
     "attr_deps_haskell_lib_infos",
     "attr_deps_haskell_link_group_providers",
+    "attr_deps_haskell_link_group_tsets",
     "attr_deps_haskell_link_infos",
     "attr_deps_haskell_link_infos_sans_template_deps",
     "attr_deps_haskell_toolchain_libraries",
@@ -2135,6 +2138,7 @@ _DynamicLinkGroupSharedOptions = record(
     toolchain_deps = list[HaskellToolchainLibrary],
     project_deps = list[str],
     libs_tset = HaskellLibraryInfoTSet,
+    link_group_tset = HaskellLinkGroupTSet,
     link_args = LinkArgs,
     allow_cache_upload = bool,
 )
@@ -2156,19 +2160,31 @@ def _dynamic_link_group_shared_impl(
     toolchain_deps = [d.name for d in arg.toolchain_deps]
     package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
 
+    packagedb_args = cmd_args()
+    package_args = cmd_args()
+
+    # toolchain package db
     package_db_tset = actions.tset(
         HaskellPackageDbTSet,
         children = [package_db[name] for name in toolchain_deps if name in package_db],
     )
-    packagedb_args = cmd_args()
     packagedb_args.add(package_db_tset.project_as_args("package_db"))
+    # adding toolchain dep packages
+    package_args.add(cmd_args(toolchain_deps, prepend = "-package"))
+
+    # linkgroup package db and package
+    packagedb_args.add(arg.link_group_tset.project_as_args("package_db"))
+    package_args.add(cmd_args(arg.link_group_tset.project_as_args("package"), prepend = "-package"))
 
     # adding indirect project dep packages
     direct_deps = []
     indirect_deps = []
     direct_deps_name = [d.name for d in arg.hlibs]
+
+    component_deps = arg.link_group_tset.reduce("components") + direct_deps_name
+
     for d in list(arg.libs_tset.traverse()):
-        if d.name in direct_deps_name:
+        if d.name in component_deps:
             direct_deps.append(d)
             packagedb_args.add(cmd_args(d.empty_db))
         else:
@@ -2177,11 +2193,10 @@ def _dynamic_link_group_shared_impl(
 
     link_args.add(cmd_args(packagedb_args, prepend = "-package-db"))
     for d in indirect_deps:
-        link_args.add(cmd_args(d.name, prepend = "-package"))
+        package_args.add(cmd_args(d.name, prepend = "-package"))
         link_cmd_hidden.append(d.libs)
 
-    # adding toolchain dep packages
-    link_args.add(cmd_args(toolchain_deps, prepend = "-package"))
+    link_args.add(package_args)
 
     for hlib in arg.hlibs:
         is_profiled = False
@@ -2262,6 +2277,7 @@ def make_haskell_link_group(
         label: Label,
         hlibs: list[HaskellLibraryInfo],
         direct_deps_info: list[HaskellLibraryInfoTSet],
+        direct_deps_lg_tsets: list[HaskellLinkGroupTSet],
         link_style: LinkStyle,
         enable_profiling: bool,
         registerer: RunInfo,
@@ -2291,6 +2307,11 @@ def make_haskell_link_group(
     libs_tset = actions.tset(
         HaskellLibraryInfoTSet,
         children = direct_deps_info,
+    )
+
+    link_group_tset = actions.tset(
+        HaskellLinkGroupTSet,
+        children = direct_deps_lg_tsets,
     )
 
     toolchain_deps = libs_tset.reduce("toolchain_packages")
@@ -2338,6 +2359,7 @@ def make_haskell_link_group(
             toolchain_deps = toolchain_deps,
             project_deps = project_deps,
             libs_tset = libs_tset,
+            link_group_tset = link_group_tset,
             link_args = link_args,
             allow_cache_upload = allow_cache_upload,
         ),
@@ -2346,13 +2368,24 @@ def make_haskell_link_group(
         extra_lib_dyns = extra_lib_dyns,
     ))
 
+    lg_provider = HaskellLinkGroupProvider(
+        pkgname = pkgname,
+        db = db,
+        lib = lib,
+        libraries = hlibs,
+    )
+
+    link_group_tsets = actions.tset(
+        HaskellLinkGroupTSet,
+        value = lg_provider,
+        children = direct_deps_lg_tsets,
+    )
+
     return [
         DefaultInfo(default_outputs = [lib]),
-        HaskellLinkGroupProvider(
-            pkgname = pkgname,
-            db = db,
-            lib = lib,
-            libraries = hlibs,
+        lg_provider,
+        HaskellLinkGroupTSetProvider(
+            link_group_tsets = link_group_tsets,
         ),
     ]
 
@@ -2366,17 +2399,20 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
     linker_info = ctx.attrs._cxx_toolchain[CxxToolchainInfo].linker_info
 
     hlibs = []
-    for l in attr_deps(ctx):
-        hlib = l.get(HaskellLibraryProvider)
+    for dep in attr_deps(ctx):
+        hlib = dep.get(HaskellLibraryProvider)
         if hlib:
             hlibs.append(hlib.lib[link_style])
     direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos(ctx)]
+
+    direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx)
 
     results = make_haskell_link_group(
         ctx,
         label = ctx.label,
         hlibs = hlibs,
         direct_deps_info = direct_deps_info,
+        direct_deps_lg_tsets = direct_deps_lg_tsets,
         link_style = link_style,
         enable_profiling = enable_profiling,
         registerer = registerer,
