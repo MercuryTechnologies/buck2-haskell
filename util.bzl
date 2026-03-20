@@ -226,13 +226,13 @@ def make_haskell_names_from_label(
         libname = label.name
         pkgname = libname
     else:
-        libprefix = repr(label.path).replace("//", "_").replace("/", "_").replace(".", "_")
+        libprefix = repr(label.path).replace("//", "_").replace("/", "_")
 
         # avoid consecutive "--" in package name, which is not allowed by ghc-pkg.
         if libprefix[-1] == "_":
-            libname0 = libprefix + label.name.replace(".", "_")
+            libname0 = libprefix + label.name
         else:
-            libname0 = libprefix + "_" + label.name.replace(".", "_")
-        pkgname = libname0.replace("_", "-")
+            libname0 = libprefix + "_" + label.name
+        pkgname = libname0.replace("_", "-").replace(".", "-")
         libname = "HS" + pkgname
     return (pkgname, libname)

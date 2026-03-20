@@ -54,6 +54,7 @@ load(
     "get_source_prefixes",
     "is_haskell_boot",
     "is_haskell_src",
+    "make_haskell_names_from_label",
     "output_extensions",
     "src_to_module_name",
     "srcs_to_pairs",
@@ -610,12 +611,10 @@ def target_metadata(
 
     libprefix = repr(ctx.label.path).replace("//", "_").replace("/", "_")
 
-    # avoid consecutive "--" in package name, which is not allowed by ghc-pkg.
-    if libprefix[-1] == "_":
-        libname = libprefix + ctx.label.name
-    else:
-        libname = libprefix + "_" + ctx.label.name
-    pkgname = libname.replace("_", "-")
+    if getattr(ctx.attrs, "use_same_package_name", None):  # haskell_library case
+        (pkgname, libname) = make_haskell_names_from_label(ctx.label, ctx.attrs.use_same_package_name)
+    else:  # haskell_binary case
+        (pkgname, libname) = make_haskell_names_from_label(ctx.label, False)
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
     allow_worker = ctx.attrs.allow_worker
