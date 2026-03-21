@@ -47,10 +47,7 @@ HaskellLibraryInfo = record(
     # extra non-Haskell libraries
     extra_libraries = field(list[Dependency], []),
 
-    # This field is only used as hidden inputs to compilation, to
-    # support Template Haskell which may need access to the libraries
-    # at compile time.  The real library flags are propagated up the
-    # dependency graph via MergedLinkInfo.
+    # resultant libraries
     libs = field(list[Artifact], []),
     # Package version, used to specify the full package when exposing it,
     # e.g. filepath-1.4.2.1, deepseq-1.4.4.0.
