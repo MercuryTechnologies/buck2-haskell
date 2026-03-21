@@ -31,7 +31,6 @@ load(
     "HaskellLinkGroupTSet",
     "HaskellLinkGroupTSetProvider",
     "HaskellLinkInfo",
-    "HaskellProfLinkInfo",
 )
 load(
     ":toolchain.bzl",
@@ -152,15 +151,6 @@ def attr_deps_merged_link_infos(ctx: AnalysisContext) -> list[MergedLinkInfo]:
             for d in attr_deps(ctx)
         ],
     ))
-
-def attr_deps_profiling_link_infos(ctx: AnalysisContext) -> list[MergedLinkInfo]:
-    return filter(
-        None,
-        [
-            d.get(HaskellProfLinkInfo).prof_infos if d.get(HaskellProfLinkInfo) else d.get(MergedLinkInfo)
-            for d in attr_deps(ctx)
-        ],
-    )
 
 def attr_deps_shared_library_infos(ctx: AnalysisContext) -> list[SharedLibraryInfo]:
     return filter(
