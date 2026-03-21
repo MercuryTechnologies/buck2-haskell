@@ -10,10 +10,6 @@
 load("@prelude//:paths.bzl", "paths")
 load("@prelude//cxx:archive.bzl", "make_archive")
 load(
-    "@prelude//cxx:cxx.bzl",
-    "get_auto_link_group_specs",
-)
-load(
     "@prelude//cxx:cxx_context.bzl",
     "get_cxx_toolchain_info",
 )
@@ -25,19 +21,6 @@ load(
     "PicBehavior",
 )
 load("@prelude//cxx:groups.bzl", "get_dedupped_roots_from_groups")
-load(
-    "@prelude//cxx:link_groups.bzl",
-    "LinkGroupContext",
-    "create_link_groups",
-    "find_relevant_roots",
-    "get_filtered_labels_to_links_map",
-    "get_filtered_links",
-    "get_link_group_info",
-    "get_link_group_preferred_linkage",
-    "get_public_link_group_nodes",
-    "get_transitive_deps_matching_labels",
-    "is_link_group_shlib",
-)
 load(
     "@prelude//cxx:linker.bzl",
     "LINKERS",
@@ -53,7 +36,6 @@ load(
 )
 load(
     "@prelude//linking:link_groups.bzl",
-    "gather_link_group_libs",
     "merge_link_group_lib_info",
 )
 load(
@@ -78,14 +60,6 @@ load(
     "map_to_link_infos",
     "to_link_strategy",
     "unpack_link_args",
-)
-load(
-    "@prelude//linking:linkable_graph.bzl",
-    "LinkableGraph",
-    "create_linkable_graph",
-    "create_linkable_graph_node",
-    "create_linkable_node",
-    "get_linkable_graph_node_map_func",
 )
 load(
     "@prelude//linking:linkables.bzl",
@@ -427,21 +401,6 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
         solibs[soname] = LinkedObject(output = lib, unstripped_output = lib)
     shared_libs = create_shared_libraries(ctx, solibs)
 
-    linkable_graph = create_linkable_graph(
-        ctx,
-        node = create_linkable_graph_node(
-            ctx,
-            linkable_node = create_linkable_node(
-                ctx = ctx,
-                exported_deps = attr_deps(ctx),
-                link_infos = {_to_lib_output_style(s): v for s, v in link_infos.items()},
-                shared_libs = shared_libs,
-                default_soname = None,
-            ),
-        ),
-        deps = attr_deps(ctx),
-    )
-
     inherited_pp_info = cxx_inherited_preprocessor_infos(attr_deps(ctx))
     own_pp_info = CPreprocessor(
         args = CPreprocessorArgs(args = flatten([["-isystem", d] for d in ctx.attrs.cxx_header_dirs])),
@@ -459,7 +418,6 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
         merge_link_group_lib_info(deps = attr_deps(ctx)),
         haskell_link_infos,
         merged_link_info,
-        linkable_graph,
         ResourceInfo(resources = gather_resources(
             label = ctx.label,
             resources = haskell_attr_resources(ctx),
@@ -1313,23 +1271,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         exported_deps = default_native_infos,
     )
 
-    linkable_graph = create_linkable_graph(
-        ctx,
-        node = create_linkable_graph_node(
-            ctx,
-            linkable_node = create_linkable_node(
-                ctx = ctx,
-                preferred_linkage = preferred_linkage,
-                exported_deps = attr_deps(ctx),
-                link_infos = {_to_lib_output_style(s): v for s, v in link_infos.items()},
-                shared_libs = shared_libs,
-                # TODO(cjhopman): this should be set to non-None
-                default_soname = None,
-            ),
-        ),
-        deps = attr_deps(ctx),
-    )
-
     default_output = hlib_infos[actual_link_style].libs
 
     inherited_pp_info = cxx_inherited_preprocessor_infos(attr_deps(ctx))
@@ -1395,7 +1336,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             extra = extra,
         ),
         merged_link_info,
-        linkable_graph,
         cxx_merge_cpreprocessors(ctx.actions, pp, inherited_pp_info),
         merge_shared_libraries(
             ctx.actions,
@@ -1671,9 +1611,6 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     link_style = attr_link_style(ctx)
 
-    # Link Groups
-    link_group_info = get_link_group_info(ctx, filter_and_map_idx(LinkableGraph, attr_deps(ctx)))
-
     # Profiling doesn't support shared libraries
     if enable_profiling and link_style == LinkStyle("shared"):
         link_style = LinkStyle("static")
@@ -1752,134 +1689,20 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     sos = []
 
     link_strategy = to_link_strategy(link_style)
-    if link_group_info != None:
-        own_binary_link_flags = []
-        auto_link_groups = {}
-        link_group_libs = {}
-        link_deps = linkables(attr_deps(ctx))
-        linkable_graph_node_map = get_linkable_graph_node_map_func(link_group_info.graph)()
-        link_group_preferred_linkage = get_link_group_preferred_linkage(link_group_info.groups.values())
 
-        # If we're using auto-link-groups, where we generate the link group links
-        # in the prelude, the link group map will give us the link group libs.
-        # Otherwise, pull them from the `LinkGroupLibInfo` provider from out deps.
-        auto_link_group_specs = get_auto_link_group_specs(ctx, link_group_info)
-        executable_deps = [d.linkable_graph.nodes.value.label for d in link_deps if d.linkable_graph != None]
-        public_nodes = get_public_link_group_nodes(
-            linkable_graph_node_map,
-            link_group_info.mappings,
-            executable_deps,
-            None,
-        )
-        if auto_link_group_specs != None:
-            linked_link_groups = create_link_groups(
-                ctx = ctx,
-                link_strategy = link_strategy,
-                link_group_mappings = link_group_info.mappings,
-                link_group_preferred_linkage = link_group_preferred_linkage,
-                executable_deps = executable_deps,
-                link_group_specs = auto_link_group_specs,
-                linkable_graph_node_map = linkable_graph_node_map,
-                public_nodes = public_nodes,
-            )
-            for name, linked_link_group in linked_link_groups.libs.items():
-                auto_link_groups[name] = linked_link_group.artifact
-                if linked_link_group.library != None:
-                    link_group_libs[name] = linked_link_group.library
-            own_binary_link_flags += linked_link_groups.symbol_ldflags
-
-        else:
-            # NOTE(agallagher): We don't use version scripts and linker scripts
-            # for non-auto-link-group flow, as it's note clear it's useful (e.g.
-            # it's mainly for supporting dlopen-enabled libs and extensions).
-            link_group_libs = gather_link_group_libs(
-                children = [d.link_group_lib_info for d in link_deps],
-            )
-
-        link_group_relevant_roots = find_relevant_roots(
-            linkable_graph_node_map = linkable_graph_node_map,
-            link_group_mappings = link_group_info.mappings,
-            roots = get_dedupped_roots_from_groups(link_group_info.groups.values()),
-        )
-
-        labels_to_links = get_filtered_labels_to_links_map(
-            public_nodes = public_nodes,
-            linkable_graph_node_map = linkable_graph_node_map,
-            link_group = None,
-            link_groups = link_group_info.groups,
-            link_group_mappings = link_group_info.mappings,
-            link_group_preferred_linkage = link_group_preferred_linkage,
-            link_group_libs = {
-                name: (lib.label, lib.shared_link_infos)
-                for name, lib in link_group_libs.items()
-            },
-            link_strategy = link_strategy,
-            roots = (
-                [
-                    d.linkable_graph.nodes.value.label
-                    for d in link_deps
-                    if d.linkable_graph != None
-                ] +
-                link_group_relevant_roots
-            ),
-            is_executable_link = True,
-            force_static_follows_dependents = True,
-            pic_behavior = PicBehavior("supported"),
-        )
-
-        # NOTE: Our Haskell DLL support impl currently links transitive haskell
-        # deps needed by DLLs which get linked into the main executable as link-
-        # whole.  To emulate this, we mark Haskell rules with a special label
-        # and traverse this to find all the nodes we need to link whole.
-        public_nodes = []
-        if ctx.attrs.link_group_public_deps_label != None:
-            public_nodes = get_transitive_deps_matching_labels(
-                linkable_graph_node_map = linkable_graph_node_map,
-                label = ctx.attrs.link_group_public_deps_label,
-                roots = link_group_relevant_roots,
-            )
-
-        link_infos = []
-        link_infos.append(
-            LinkInfo(
-                pre_flags = own_binary_link_flags,
-            ),
-        )
-        link_infos.extend(get_filtered_links(labels_to_links.map, set(public_nodes)))
-        infos = LinkArgs(infos = link_infos)
-
-        link_group_ctx = LinkGroupContext(
-            link_group_mappings = link_group_info.mappings,
-            link_group_libs = link_group_libs,
-            link_group_preferred_linkage = link_group_preferred_linkage,
-            labels_to_links_map = labels_to_links.map,
-            targets_consumed_by_link_groups = {},
-        )
-
-        for shared_lib in traverse_shared_library_info(shlib_info):
-            label = shared_lib.label
-            if is_link_group_shlib(label, link_group_ctx):
-                sos.append(shared_lib)
-
-        # When there are no matches for a pattern based link group,
-        # `link_group_mappings` will not have an entry associated with the lib.
-        for _name, link_group_lib in link_group_libs.items():
-            sos.extend(link_group_lib.shared_libs.libraries)
-
-    else:
-        nlis = []
-        for lib in attr_deps(ctx):
-            li = lib.get(MergedLinkInfo)
-            if li != None:
-                nlis.append(li)
-        sos.extend(traverse_shared_library_info(shlib_info, transformation_provider = None))
-        infos = get_link_args_for_strategy(
-            ctx,
-            nlis,
-            to_link_strategy(link_style),
-            prefer_stripped = True,
-            transformation_spec_context = None,
-        )
+    nlis = []
+    for lib in attr_deps(ctx):
+        li = lib.get(MergedLinkInfo)
+        if li != None:
+            nlis.append(li)
+    sos.extend(traverse_shared_library_info(shlib_info, transformation_provider = None))
+    infos = get_link_args_for_strategy(
+        ctx,
+        nlis,
+        to_link_strategy(link_style),
+        prefer_stripped = True,
+        transformation_spec_context = None,
+    )
 
     if link_style in [LinkStyle("static"), LinkStyle("static_pic")]:
         hlis = attr_deps_haskell_link_infos_sans_template_deps(ctx)
@@ -1956,7 +1779,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             resources_hidden.append(resource.default_output)
             resources_hidden.extend(resource.other_outputs)
 
-    if link_style == LinkStyle("shared") or link_group_info != None:
+    if link_style == LinkStyle("shared"):
         sos_dir = "__{}__shared_libs_symlink_tree".format(ctx.label.name)
         rpath_ref = get_rpath_origin(get_cxx_toolchain_info(ctx).linker_info.type)
         rpath_ldflag = "-Wl,{}/{}".format(rpath_ref, sos_dir)
