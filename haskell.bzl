@@ -28,13 +28,6 @@ load(
     "get_shared_library_flags",
 )
 load(
-    "@prelude//cxx:preprocessor.bzl",
-    "CPreprocessor",
-    "CPreprocessorArgs",
-    "cxx_inherited_preprocessor_infos",
-    "cxx_merge_cpreprocessors",
-)
-load(
     "@prelude//linking:link_groups.bzl",
     "merge_link_group_lib_info",
 )
@@ -401,15 +394,9 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
         solibs[soname] = LinkedObject(output = lib, unstripped_output = lib)
     shared_libs = create_shared_libraries(ctx, solibs)
 
-    inherited_pp_info = cxx_inherited_preprocessor_infos(attr_deps(ctx))
-    own_pp_info = CPreprocessor(
-        args = CPreprocessorArgs(args = flatten([["-isystem", d] for d in ctx.attrs.cxx_header_dirs])),
-    )
-
     return [
         DefaultInfo(),
         haskell_lib_provider,
-        cxx_merge_cpreprocessors(ctx, [own_pp_info], inherited_pp_info),
         merge_shared_libraries(
             ctx.actions,
             shared_libs,
@@ -1273,20 +1260,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
 
     default_output = hlib_infos[actual_link_style].libs
 
-    inherited_pp_info = cxx_inherited_preprocessor_infos(attr_deps(ctx))
-
-    # We would like to expose the generated _stub.h headers to C++
-    # compilations, but it's hard to do that without overbuilding. Which
-    # link_style should we pick below? If we pick a different link_style from
-    # the one being used by the root rule, we'll end up building all the
-    # Haskell libraries multiple times.
-    #
-    #    pp = [CPreprocessor(
-    #        args =
-    #            flatten([["-isystem", dir] for dir in hlib_infos[actual_link_style].stub_dirs]),
-    #    )]
-    pp = []
-
     haddock = haskell_haddock_lib(
         ctx,
         pkgname,
@@ -1336,7 +1309,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             extra = extra,
         ),
         merged_link_info,
-        cxx_merge_cpreprocessors(ctx.actions, pp, inherited_pp_info),
         merge_shared_libraries(
             ctx.actions,
             shared_libs,
@@ -1353,38 +1325,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         resources = haskell_attr_resources(ctx),
         deps = attr_deps(ctx),
     )))
-
-    # TODO(cjhopman): This code is for templ_vars is duplicated from cxx_library
-    templ_vars = {}
-
-    # Add in ldflag macros.
-    for link_style in (LinkStyle("static"), LinkStyle("static_pic")):
-        name = "ldflags-" + link_style.value.replace("_", "-")
-        args = cmd_args()
-        linker_info = ctx.attrs._cxx_toolchain[CxxToolchainInfo].linker_info
-        args.add(linker_info.linker_flags)
-        args.add(unpack_link_args(
-            get_link_args_for_strategy(
-                ctx,
-                [merged_link_info],
-                to_link_strategy(link_style),
-                prefer_stripped = True,
-                transformation_spec_context = None,
-            ),
-        ))
-        templ_vars[name] = args
-
-    # TODO(T110378127): To implement `$(ldflags-shared ...)` properly, we'd need
-    # to setup a symink tree rule for all transitive shared libs.  Since this
-    # currently would be pretty costly (O(N^2)?), and since it's not that
-    # commonly used anyway, just use `static-pic` instead.  Longer-term, once
-    # v1 is gone, macros that use `$(ldflags-shared ...)` (e.g. Haskell's
-    # hsc2hs) can move to a v2 rules-based API to avoid needing this macro.
-    templ_vars["ldflags-shared"] = templ_vars["ldflags-static-pic"]
-
-    providers.append(TemplatePlaceholderInfo(keyed_variables = templ_vars))
-
-    providers.append(merge_link_group_lib_info(deps = attr_deps(ctx)))
 
     return providers
 
