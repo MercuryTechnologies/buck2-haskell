@@ -262,7 +262,6 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
     native_infos = []
 
     haskell_infos = []
-    shared_library_infos = []
     for dep in attr_deps(ctx):
         used = False
         if HaskellLinkInfo in dep:
@@ -272,9 +271,6 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
         if li != None:
             used = True
             native_infos.append(li)
-        if SharedLibraryInfo in dep:
-            used = True
-            shared_library_infos.append(dep[SharedLibraryInfo])
         if PythonLibraryInfo in dep:
             used = True
         if not used:
@@ -389,19 +385,9 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
         exported_deps = default_native_infos,
     )
 
-    solibs = {}
-    for soname, lib in ctx.attrs.shared_libs.items():
-        solibs[soname] = LinkedObject(output = lib, unstripped_output = lib)
-    shared_libs = create_shared_libraries(ctx, solibs)
-
     return [
         DefaultInfo(),
         haskell_lib_provider,
-        merge_shared_libraries(
-            ctx.actions,
-            shared_libs,
-            shared_library_infos,
-        ),
         merge_link_group_lib_info(deps = attr_deps(ctx)),
         haskell_link_infos,
         merged_link_info,
@@ -1127,9 +1113,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     # Get haskell and native link infos from all deps
     hlis = attr_deps_haskell_link_infos_sans_template_deps(ctx)
     nlis = attr_deps_merged_link_infos(ctx)
-    shared_library_infos = attr_deps_shared_library_infos(ctx)
 
-    solibs = {}
     link_infos = {}
     hlib_infos = {}
     hlink_infos = {}
@@ -1194,7 +1178,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
                 non_profiling_hlib[link_style] = hlib_build_out
 
             hlib = hlib_build_out.hlib
-            solibs.update(hlib_build_out.solibs)
             compiled = hlib_build_out.compiled
             libs = hlib_build_out.libs
 
@@ -1239,7 +1222,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         preferred_linkage,
         pic_behavior,
     )
-    shared_libs = create_shared_libraries(ctx, solibs)
 
     # TODO(cjhopman): this haskell implementation does not consistently handle LibOutputStyle
     # and LinkStrategy as expected and it's hard to tell what the intent of the existing code is
@@ -1309,11 +1291,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             extra = extra,
         ),
         merged_link_info,
-        merge_shared_libraries(
-            ctx.actions,
-            shared_libs,
-            shared_library_infos,
-        ),
         haddock,
     ]
 
@@ -1652,18 +1629,6 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         tset = derive_indexing_tset(ctx.actions, link_style, compiled.hi, attr_deps(ctx))
         indexing_tsets[link_style] = tset
 
-    slis = []
-    for lib in attr_deps(ctx):
-        li = lib.get(SharedLibraryInfo)
-        if li != None:
-            slis.append(li)
-    shlib_info = merge_shared_libraries(
-        ctx.actions,
-        deps = slis,
-    )
-
-    sos = []
-
     link_strategy = to_link_strategy(link_style)
 
     nlis = []
@@ -1671,7 +1636,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         li = lib.get(MergedLinkInfo)
         if li != None:
             nlis.append(li)
-    sos.extend(traverse_shared_library_info(shlib_info, transformation_provider = None))
+
     infos = get_link_args_for_strategy(
         ctx,
         nlis,
