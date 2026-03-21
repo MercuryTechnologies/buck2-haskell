@@ -1388,6 +1388,7 @@ def _make_link_package(
 _DynamicLinkBinaryOptions = record(
     deps = list[Dependency],
     direct_deps_link_info = list[HaskellLinkInfo],
+    direct_deps_lg_tsets = list[HaskellLinkGroupTSet],
     enable_profiling = bool,
     haskell_direct_deps_lib_infos = list[HaskellLibraryInfo],
     haskell_toolchain = HaskellToolchainInfo,
@@ -1405,6 +1406,7 @@ def _dynamic_link_binary_impl(
         actions: AnalysisActions,
         pkg_deps: ResolvedDynamicValue,
         output: OutputArtifact,
+        output_symlink_dir: OutputArtifact | None,
         arg: _DynamicLinkBinaryOptions) -> list[Provider]:
 
     link_args = arg.link_args.copy()  # link is already frozen, make a copy
@@ -1503,6 +1505,39 @@ def _dynamic_link_binary_impl(
         hidden = link_cmd_hidden,
     )
 
+    # TODO: this must be interleaved with the above.
+    if arg.link_style == LinkStyle("shared"):
+        shlibs = []
+        link_group_tset = actions.tset(
+            HaskellLinkGroupTSet,
+            children = arg.direct_deps_lg_tsets,
+        )
+        hlib_tset = actions.tset(
+            HaskellLibraryInfoTSet,
+            children = [li.info[arg.link_style] for li in arg.direct_deps_link_info],
+        )
+        components = link_group_tset.reduce("components")
+        for x in link_group_tset.traverse():
+            shlibs.append(x.lib)
+        for x in hlib_tset.traverse():
+            if x.name not in components:
+                shlibs.extend(x.libs)
+        for x in toolchain_package_db_tset.traverse():
+            shlibs.append(x.path)
+        shlibs_dict = {}
+        # for now, we are just using numbers. Let's make proper naming when HaskellPackage
+        # for toolchain libraries can have more metadata information.
+        i = 0
+        for x in shlibs:
+            i += 1
+            k = "{}".format(i)
+            shlibs_dict[k] = x
+        if output_symlink_dir:
+           actions.symlinked_dir(
+               output_symlink_dir,
+               shlibs_dict,
+           )
+
     actions.run(
         link_cmd,
         category = "haskell_link",
@@ -1518,6 +1553,7 @@ _dynamic_link_binary = dynamic_actions(
         "arg": dynattrs.value(typing.Any),
         "pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
         "output": dynattrs.output(),
+        "output_symlink_dir": dynattrs.option(dynattrs.output()),
     },
 )
 
@@ -1681,12 +1717,22 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     ]
     link_group_libs = attr_deps_haskell_link_group_providers(ctx)
 
+    if link_style == LinkStyle("shared"):
+        output_symlink_dir = ctx.actions.declare_output(
+            "__{}__shared_libs_symlink_tree".format(ctx.label.name),
+            dir = True,
+        )
+    else:
+        output_symlink_dir = None
+
     ctx.actions.dynamic_output_new(_dynamic_link_binary(
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
         output = output.as_output(),
+        output_symlink_dir = output_symlink_dir.as_output() if output_symlink_dir else None,
         arg = _DynamicLinkBinaryOptions(
             deps = attr_deps(ctx),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
+            direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx),
             enable_profiling = enable_profiling,
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
             haskell_toolchain = haskell_toolchain,
@@ -1719,17 +1765,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             resources_hidden.extend(resource.other_outputs)
 
     if link_style == LinkStyle("shared"):
-        sos_dir = "__{}__shared_libs_symlink_tree".format(ctx.label.name)
-        rpath_ref = get_rpath_origin(get_cxx_toolchain_info(ctx).linker_info.type)
-        rpath_ldflag = "-Wl,{}/{}".format(rpath_ref, sos_dir)
-        link_args.add("-optl", "-Wl,-rpath", "-optl", rpath_ldflag)
-        symlink_dir = create_shlib_symlink_tree(
-            actions = ctx.actions,
-            out = sos_dir,
-            shared_libs = sos,
-        )
-
-        run = cmd_args(output, hidden = [symlink_dir] + [link_group.lib for link_group in link_group_libs] + resources_hidden)
+        run = cmd_args(output, hidden = [output_symlink_dir] + [link_group.lib for link_group in link_group_libs] + resources_hidden)
     else:
         run = cmd_args(output, hidden = resources_hidden)
 
