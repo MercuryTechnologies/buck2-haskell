@@ -28,10 +28,6 @@ load(
     "get_shared_library_flags",
 )
 load(
-    "@prelude//linking:link_groups.bzl",
-    "merge_link_group_lib_info",
-)
-load(
     "@prelude//linking:link_info.bzl",
     "Archive",
     "ArchiveLinkable",
@@ -388,7 +384,6 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
     return [
         DefaultInfo(),
         haskell_lib_provider,
-        merge_link_group_lib_info(deps = attr_deps(ctx)),
         haskell_link_infos,
         merged_link_info,
         ResourceInfo(resources = gather_resources(
