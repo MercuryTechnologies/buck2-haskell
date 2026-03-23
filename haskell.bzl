@@ -40,7 +40,6 @@ load(
     "MergedLinkInfo",
     "SharedLibLinkable",
     "append_linkable_args",
-    "create_merged_link_info",
     "default_output_style_for_link_strategy",
     "get_lib_output_style",
     "get_link_args_for_strategy",
@@ -49,10 +48,6 @@ load(
     "map_to_link_infos",
     "to_link_strategy",
     "unpack_link_args",
-)
-load(
-    "@prelude//linking:linkables.bzl",
-    "linkables",
 )
 load(
     "@prelude//linking:shared_libraries.bzl",
@@ -254,19 +249,12 @@ def _get_haskell_prebuilt_libs(
         fail("Unexpected LinkStyle: " + link_style.value)
 
 def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
-    # MergedLinkInfo for both with and without profiling
-    native_infos = []
-
     haskell_infos = []
     for dep in attr_deps(ctx):
         used = False
         if HaskellLinkInfo in dep:
             used = True
             haskell_infos.append(dep[HaskellLinkInfo])
-        li = dep.get(MergedLinkInfo)
-        if li != None:
-            used = True
-            native_infos.append(li)
         if PythonLibraryInfo in dep:
             used = True
         if not used:
@@ -276,7 +264,7 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
     prof_hlibinfos = {}
     hlinkinfos = {}
     prof_hlinkinfos = {}
-    link_infos = {}
+
     for link_style in LinkStyle:
         libs = _get_haskell_prebuilt_libs(ctx, link_style, False)
         prof_libs = _get_haskell_prebuilt_libs(ctx, link_style, True)
@@ -322,22 +310,6 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             md_file = None,
         )
 
-        def archive_linkable(lib):
-            return ArchiveLinkable(
-                archive = Archive(artifact = lib),
-                linker_type = LinkerType("gnu"),
-            )
-
-        def shared_linkable(lib):
-            return SharedLibLinkable(
-                lib = lib,
-            )
-
-        linkables = [
-            (shared_linkable if link_style == LinkStyle("shared") else archive_linkable)(lib)
-            for lib in libs
-        ]
-
         hlibinfos[link_style] = hlibinfo
         hlinkinfos[link_style] = ctx.actions.tset(
             HaskellLibraryInfoTSet,
@@ -350,13 +322,6 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
             value = prof_hlibinfo,
             children = [lib.prof_info[link_style] for lib in haskell_infos],
         )
-        link_infos[link_style] = LinkInfos(
-            default = LinkInfo(
-                pre_flags = ctx.attrs.exported_linker_flags,
-                post_flags = ctx.attrs.exported_post_linker_flags,
-                linkables = linkables,
-            ),
-        )
 
     haskell_link_infos = HaskellLinkInfo(
         info = hlinkinfos,
@@ -367,25 +332,10 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
         prof_lib = prof_hlibinfos,
     )
 
-    # The link info that will be used when this library is a dependency of a non-Haskell
-    # target (e.g. a cxx_library()). We need to pick the profiling libs if we're in
-    # profiling mode.
-    default_link_infos = link_infos # prof_link_infos if ctx.attrs.enable_profiling else link_infos
-    default_native_infos = native_infos #prof_native_infos if ctx.attrs.enable_profiling else native_infos
-    merged_link_info = create_merged_link_info(
-        ctx,
-        # We don't have access to a CxxToolchain here (yet).
-        # Give that it's already built, this doesn't mean much, use a sane default.
-        pic_behavior = PicBehavior("supported"),
-        link_infos = {_to_lib_output_style(s): v for s, v in default_link_infos.items()},
-        exported_deps = default_native_infos,
-    )
-
     return [
         DefaultInfo(),
         haskell_lib_provider,
         haskell_link_infos,
-        merged_link_info,
         ResourceInfo(resources = gather_resources(
             label = ctx.label,
             resources = haskell_attr_resources(ctx),
@@ -1225,16 +1175,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     # who understands the intent of the code here.
     actual_link_style = legacy_output_style_to_link_style(output_style)
 
-    default_link_infos = link_infos # prof_link_infos if ctx.attrs.enable_profiling else link_infos
-    default_native_infos = nlis #prof_nlis if ctx.attrs.enable_profiling else nlis
-    merged_link_info = create_merged_link_info(
-        ctx,
-        pic_behavior = pic_behavior,
-        link_infos = {_to_lib_output_style(s): v for s, v in default_link_infos.items()},
-        preferred_linkage = preferred_linkage,
-        exported_deps = default_native_infos,
-    )
-
     default_output = hlib_infos[actual_link_style].libs
 
     haddock = haskell_haddock_lib(
@@ -1285,7 +1225,6 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             prof_info = prof_hlink_infos,
             extra = extra,
         ),
-        merged_link_info,
         haddock,
     ]
 
