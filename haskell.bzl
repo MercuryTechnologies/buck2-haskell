@@ -705,12 +705,6 @@ def _dynamic_link_shared_impl(
     # extra libraries
     link_cmd_hidden.extend(extra_libs)
 
-    # Ensure that Buck2 knows we need all of the transitive library
-    # dependencies built before we can run this link command.
-    link_cmd_hidden.append(
-        actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info).project_as_args("libs"),
-    )
-
     # link group
     for lg in arg.link_group_libs:
         link_args.add("-package", lg.pkgname)
@@ -1328,7 +1322,12 @@ def _dynamic_link_binary_impl(
 
     link_args.add("-hide-all-packages")
 
-    all_link_group_ids = [l.id for lg in arg.link_group_libs for l in lg.libraries]
+    link_group_tset = actions.tset(
+        HaskellLinkGroupTSet,
+        children = arg.direct_deps_lg_tsets,
+    )
+
+    all_link_group_ids = link_group_tset.reduce("components")
 
     libs = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
 
@@ -1365,10 +1364,11 @@ def _dynamic_link_binary_impl(
         for d in list(libs.traverse()):
             packagedb_args.add(cmd_args(d.empty_db))
 
-        for item in arg.haskell_direct_deps_lib_infos:
-            if not item.id in all_link_group_ids:
-                package_args.add(item.name)
-                link_cmd_hidden.append(item.libs)
+        #for item in arg.haskell_direct_deps_lib_infos:
+        #    if not item.id in all_link_group_ids:
+        #        print("item.id = {}".format(item.id))
+        #        package_args.add(item.name)
+        #        link_cmd_hidden.append(item.libs)
 
         # Add all the transitive objects except for those in link group.
         tset = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
@@ -1394,12 +1394,6 @@ def _dynamic_link_binary_impl(
     link_args.add(cmd_args(package_args, prepend = "-package"))
     link_args.add(object_args)
 
-    # Ensure that Buck2 knows we need all of the transitive library
-    # dependencies built before we can run this link command.
-    link_cmd_hidden.append(
-        actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info).project_as_args("libs"),
-    )
-
     link_args.add(arg.haskell_toolchain.linker_flags)
     link_args.add(arg.linker_flags)
 
@@ -1420,10 +1414,6 @@ def _dynamic_link_binary_impl(
     # TODO: this must be interleaved with the above.
     if arg.link_style == LinkStyle("shared"):
         shlibs = []
-        link_group_tset = actions.tset(
-            HaskellLinkGroupTSet,
-            children = arg.direct_deps_lg_tsets,
-        )
         hlib_tset = actions.tset(
             HaskellLibraryInfoTSet,
             children = [li.info[arg.link_style] for li in arg.direct_deps_link_info],
@@ -1431,9 +1421,10 @@ def _dynamic_link_binary_impl(
         components = link_group_tset.reduce("components")
         for x in link_group_tset.traverse():
             shlibs.append(x.lib)
-        for x in hlib_tset.traverse():
-            if x.name not in components:
-                shlibs.extend(x.libs)
+        if not arg.link_haskell_objects_at_once:
+            for x in hlib_tset.traverse():
+                if x.name not in components:
+                    shlibs.extend(x.libs)
         for x in toolchain_package_db_tset.traverse():
             shlibs.append(x.path)
         shlibs_dict = {}
