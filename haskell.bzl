@@ -1704,6 +1704,7 @@ def _make_link_group_package(
         db: OutputArtifact,
         hlibs: list[HaskellLibraryInfo],
         project_deps: list[str],
+        extra_lib_dyns: list[ResolvedDynamicValue],
         toolchain_lib_dyn_infos: list[ResolvedDynamicValue],
         allow_cache_upload: bool) -> None:
     artifact_suffix = get_artifact_suffix(link_style, False)
@@ -1712,6 +1713,11 @@ def _make_link_group_package(
     direct_deps = [lib.name for lib in hlibs]
     indirect_deps = [n for n in project_deps if n not in direct_deps]
     all_deps = indirect_deps + toolchain_deps
+
+    extra_ld_opts = cmd_args()
+    for dyn in extra_lib_dyns:
+        fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
+        extra_ld_opts.add(cmd_args(cmd_args(fs, delimiter = ","), format = "\"-Wl,{}\""))
 
     conf = cmd_args(
         "name: " + pkgname,
@@ -1732,7 +1738,7 @@ def _make_link_group_package(
         pkgname = pkgname,
         pkg_conf = conf,
         link_infos = link_infos,
-        extra_ld_opts = cmd_args(),
+        extra_ld_opts = extra_ld_opts,
     )
 
     pkg_conf = actions.write("pkg-" + artifact_suffix, conf)
@@ -1872,6 +1878,7 @@ def _dynamic_link_group_shared_impl(
         db = db,
         hlibs = arg.hlibs,
         project_deps = arg.project_deps,
+        extra_lib_dyns = extra_lib_dyns,
         toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
         allow_cache_upload = arg.allow_cache_upload,
     )
