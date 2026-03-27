@@ -1355,10 +1355,9 @@ def _dynamic_link_binary_impl(
     # NOTE: link group is not affected by link_haskell_objects_at_once.
     for lg in arg.link_group_libs:
         packagedb_args.add(cmd_args(lg.db))
-    if arg.link_style == LinkStyle("shared"):
-        for lg in arg.link_group_libs:
-            package_args.add(lg.pkgname)
-            link_cmd_hidden.append(lg.lib)
+    for lg in arg.link_group_libs:
+        package_args.add(lg.pkgname)
+        link_cmd_hidden.append(lg.lib)
 
     # NOTE: If link_haskell_objects_at_once = True, all the transitive dependency objects
     # (except for those from haskell_link_group) are directly linked at executable binary
@@ -1548,46 +1547,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         tset = derive_indexing_tset(ctx.actions, link_style, compiled.hi, attr_deps(ctx))
         indexing_tsets[link_style] = tset
 
-    link_strategy = to_link_strategy(link_style)
-
-    nlis = []
-    for lib in attr_deps(ctx):
-        li = lib.get(MergedLinkInfo)
-        if li != None:
-            nlis.append(li)
-
-    infos = get_link_args_for_strategy(
-        ctx,
-        nlis,
-        to_link_strategy(link_style),
-        prefer_stripped = True,
-        transformation_spec_context = None,
-    )
-
-    if link_style in [LinkStyle("static"), LinkStyle("static_pic")]:
-        hlis = attr_deps_haskell_link_infos_sans_template_deps(ctx)
-        linfos = [x.prof_info if enable_profiling else x.info for x in hlis]
-        uniq_infos = [x[link_style].value for x in linfos]
-
-        (pkgname0, _) = make_haskell_names_from_label(ctx.label, False)
-        pkgname = pkgname0 + "-link"
-        linkable_artifacts = [
-            f.archive.artifact
-            for link in infos.tset.infos.traverse(ordering = "topological")
-            for f in link.default.linkables
-        ]
-        db = _make_link_package(
-            ctx,
-            link_style,
-            pkgname,
-            uniq_infos,
-            linkable_artifacts,
-        )
-
-        link_args.add(cmd_args(db, prepend = "-package-db"))
-        link_args.add("-package", pkgname)
-        link_args.add(cmd_args(hidden = linkable_artifacts))
-    else:
+    if link_style == LinkStyle("shared"):
         link_args.add("-dynamic")
 
     haskell_direct_deps_lib_infos = attr_deps_haskell_lib_infos(
@@ -1764,6 +1724,7 @@ _DynamicLinkGroupSharedOptions = record(
     pkgname = str,
     libname = str,
     libfile = str,
+    link_style = LinkStyle,
     linker_info = LinkerInfo,
     registerer = RunInfo,
     haskell_toolchain = HaskellToolchainInfo,
@@ -1794,6 +1755,7 @@ def _dynamic_link_group_shared_impl(
 
     packagedb_args = cmd_args()
     package_args = cmd_args()
+    object_args = cmd_args()
 
     # toolchain package db
     package_db_tset = actions.tset(
@@ -1833,7 +1795,7 @@ def _dynamic_link_group_shared_impl(
     for hlib in arg.hlibinfos:
         is_profiled = False
         for o in hlib.objects[is_profiled]:
-            link_args.add(o)
+            object_args.add(o)
 
     link_args.add(unpack_link_args(arg.link_args))
 
@@ -1842,27 +1804,59 @@ def _dynamic_link_group_shared_impl(
         fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
         link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}"), prepend = "-optl"))
 
-    link_args.add(
-        get_shared_library_flags(arg.linker_info.type),
-        "-dynamic",
-        cmd_args(
-            _get_haskell_shared_library_name_linker_flags(arg.linker_info.type, arg.libfile),
-            prepend = "-optl",
-        ),
-        "-o",
-        lib,
-    )
+    suffix = get_artifact_suffix(arg.link_style, False)
+    if arg.link_style == LinkStyle("shared"):
+        link_args.add(object_args)
+        link_args.add(
+            get_shared_library_flags(arg.linker_info.type),
+            "-dynamic",
+            cmd_args(
+                _get_haskell_shared_library_name_linker_flags(arg.linker_info.type, arg.libfile),
+                prepend = "-optl",
+            ),
+            "-o",
+            lib,
+        )
 
-    link_cmd = cmd_args(
-        arg.haskell_toolchain.linker,
-        at_argfile(
-            actions = actions,
-            name = "haskell_link_group_shared.argsfile",
-            args = link_args,
-            allow_args = True,
-        ),
-        hidden = link_cmd_hidden,
-    )
+        link_cmd = cmd_args(
+            arg.haskell_toolchain.linker,
+            at_argfile(
+                actions = actions,
+                name = "haskell_link_group_{}.argsfile".format(suffix),
+                args = link_args,
+                allow_args = True,
+            ),
+            hidden = link_cmd_hidden,
+        )
+    else:
+        # NOTE: For static linking, we use the ar command directly. Unfortunately,
+        # although GHC as a linker can make static library with -staticlib but that
+        # includes more undefined symbols than desired, so we get linker error at exe
+        # linking.
+        # Also, we couldn't use make_archive directly since we are here in a dynamic action.
+        # (the prelude function takes ctx).
+        #
+        # NOTE: This is from the private _archive_flags function in @prelude//cxx:archive.bzl
+        # TODO: Make prelude archive_flags function more openly available or make_archive
+        #       should take actions, not ctx.
+        # q: Operate in quick append mode.
+        # c: Suppress warning about creating a new archive.
+        # s: Run ranlib to generate symbol index for faster linking.
+        new_link_args = cmd_args("qcs")
+        new_link_args.add(lib)
+        new_link_args.add(object_args)
+
+        link_cmd = cmd_args(
+            arg.linker_info.archiver,
+            at_argfile(
+                actions = actions,
+                name = "haskell_link_group_{}.argsfile".format(suffix),
+                args = new_link_args,
+                allow_args = True,
+            ),
+            hidden = link_cmd_hidden,
+        )
+
 
     actions.run(
         link_cmd,
@@ -1873,7 +1867,7 @@ def _dynamic_link_group_shared_impl(
 
     _make_link_group_package(
         actions,
-        link_style = LinkStyle("shared"),
+        link_style = arg.link_style,
         link_infos = map_to_link_infos([arg.link_args]),
         pkgname = arg.pkgname,
         libname = arg.libname,
@@ -1913,9 +1907,7 @@ def make_haskell_link_group(
         haskell_toolchain: HaskellToolchainInfo,
         linker_info: LinkerInfo,
         allow_cache_upload: bool) -> list[Provider]:
-    # TODO: for now
-    preferred_linkage = Linkage("any")
-
+    preferred_linkage = _attr_preferred_linkage(ctx)
     actual_link_style = _get_actual_link_style(ctx, preferred_linkage)
 
     providers = []
@@ -1928,7 +1920,7 @@ def make_haskell_link_group(
     # TODO: for now, support only non-profiling.
     for enable_profiling in [False]:
         # TODO: for now, support only shared link_style.
-        for output_style in [LibOutputStyle("shared_lib")]: #get_output_styles_for_linkage(preferred_linkage):
+        for output_style in get_output_styles_for_linkage(preferred_linkage):
             link_style = legacy_output_style_to_link_style(output_style)
             hlibinfos = [p.lib[link_style] for p in hlibs]
             direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos_sans_template_deps(ctx)]
@@ -2003,6 +1995,7 @@ def make_haskell_link_group(
                     pkgname = pkgname,
                     libname = libname,
                     libfile = libfile,
+                    link_style = link_style,
                     linker_info = linker_info,
                     registerer = registerer,
                     haskell_toolchain = haskell_toolchain,
