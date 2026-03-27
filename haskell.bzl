@@ -1346,9 +1346,9 @@ def _dynamic_link_binary_impl(
     package_args = cmd_args()
     object_args = cmd_args()
 
-    # toolchain libs
+    # toolchain libs: all transitive dependencies are needed.
     packagedb_args.add(toolchain_package_db_tset.project_as_args("package_db"))
-    package_args.add(arg.toolchain_libs)
+    package_args.add(all_toolchain_libs)
 
     # link group
     # NOTE: link group for executable is currently only relevant to LinkStyle("shared")
