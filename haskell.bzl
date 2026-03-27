@@ -1703,7 +1703,7 @@ def _make_link_group_package(
         registerer: RunInfo,
         haskell_toolchain: HaskellToolchainInfo,
         db: OutputArtifact,
-        hlibs: list[HaskellLibraryInfo],
+        hlibinfos: list[HaskellLibraryInfo],
         project_deps: list[str],
         extra_lib_dyns: list[ResolvedDynamicValue],
         toolchain_lib_dyn_infos: list[ResolvedDynamicValue],
@@ -1711,7 +1711,7 @@ def _make_link_group_package(
     artifact_suffix = get_artifact_suffix(link_style, False)
 
     toolchain_deps = [info.providers[DynamicHaskellToolchainLibraryInfo].id for info in toolchain_lib_dyn_infos]
-    direct_deps = [lib.name for lib in hlibs]
+    direct_deps = [lib.name for lib in hlibinfos]
     indirect_deps = [n for n in project_deps if n not in direct_deps]
     all_deps = indirect_deps + toolchain_deps
 
@@ -1757,7 +1757,7 @@ def _make_link_group_package(
     )
 
 _DynamicLinkGroupSharedOptions = record(
-    hlibs = list[HaskellLibraryInfo],
+    hlibinfos = list[HaskellLibraryInfo],
     pkgname = str,
     libname = str,
     libfile = str,
@@ -1808,7 +1808,7 @@ def _dynamic_link_group_shared_impl(
     # adding indirect project dep packages
     direct_deps = []
     indirect_deps = []
-    direct_deps_name = [d.name for d in arg.hlibs]
+    direct_deps_name = [d.name for d in arg.hlibinfos]
 
     component_deps = arg.link_group_tset.reduce("components") + direct_deps_name
 
@@ -1827,7 +1827,7 @@ def _dynamic_link_group_shared_impl(
 
     link_args.add(package_args)
 
-    for hlib in arg.hlibs:
+    for hlib in arg.hlibinfos:
         is_profiled = False
         for o in hlib.objects[is_profiled]:
             link_args.add(o)
@@ -1877,7 +1877,7 @@ def _dynamic_link_group_shared_impl(
         registerer = arg.registerer,
         haskell_toolchain = arg.haskell_toolchain,
         db = db,
-        hlibs = arg.hlibs,
+        hlibinfos = arg.hlibinfos,
         project_deps = arg.project_deps,
         extra_lib_dyns = extra_lib_dyns,
         toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
@@ -1905,13 +1905,14 @@ def make_haskell_link_group(
         ctx: AnalysisContext,
         *,
         label: Label,
-        hlibs: list[HaskellLibraryInfo],
+        hlibs: list[HaskellLibraryProvider],
         link_style: LinkStyle,
         enable_profiling: bool,
         registerer: RunInfo,
         haskell_toolchain: HaskellToolchainInfo,
         linker_info: LinkerInfo,
         allow_cache_upload: bool) -> list[Provider]:
+    hlibinfos = [p.lib[link_style] for p in hlibs]
     direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos_sans_template_deps(ctx)]
     direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx, link_style)
     actions = ctx.actions
@@ -1954,7 +1955,7 @@ def make_haskell_link_group(
     pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None
 
     # collect all the extra library dependencies from component Haskell libraries
-    direct_extra_libs = [elib for lib in hlibs for elib in lib.extra_libraries]
+    direct_extra_libs = [elib for p in hlibs for elib in p.lib[link_style].extra_libraries]
     link_args = get_link_args_for_strategy(
         ctx,
         # These attributes will always have `MergedLinkInfo` and
@@ -1979,7 +1980,7 @@ def make_haskell_link_group(
         lib = lib.as_output(),
         db = db.as_output(),
         arg = _DynamicLinkGroupSharedOptions(
-            hlibs = hlibs,
+            hlibinfos = hlibinfos,
             pkgname = pkgname,
             libname = libname,
             libfile = libfile,
@@ -2004,7 +2005,7 @@ def make_haskell_link_group(
                 pkgname = pkgname,
                 db = db,
                 lib = lib,
-                libraries = hlibs,
+                libraries = hlibinfos,
             ),
         },
     )
@@ -2034,11 +2035,13 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
     linker_info = ctx.attrs._cxx_toolchain[CxxToolchainInfo].linker_info
 
-    hlibs = []
-    for dep in attr_deps(ctx):
-        hlib = dep.get(HaskellLibraryProvider)
-        if hlib:
-            hlibs.append(hlib.lib[link_style])
+    hlibs = dedupe(filter(
+        None,
+        [
+            d.get(HaskellLibraryProvider)
+            for d in attr_deps(ctx)
+        ],
+    ))
 
     results = make_haskell_link_group(
         ctx,
