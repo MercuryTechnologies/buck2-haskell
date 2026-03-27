@@ -1043,6 +1043,23 @@ def _build_haskell_lib(
         libs = libs,
     )
 
+def _get_actual_link_style(ctx: AnalysisContext, preferred_linkage: Linkage) -> LinkStyle:
+    pic_behavior = ctx.attrs._cxx_toolchain[CxxToolchainInfo].pic_behavior
+    link_style = cxx_toolchain_link_style(ctx)
+    output_style = get_lib_output_style(
+        to_link_strategy(link_style),
+        preferred_linkage,
+        pic_behavior,
+    )
+    # TODO(cjhopman): this haskell implementation does not consistently handle LibOutputStyle
+    # and LinkStrategy as expected and it's hard to tell what the intent of the existing code is
+    # and so we currently just preserve its existing use of the legacy LinkStyle type and just
+    # naively convert it at the boundaries of other code. This needs to be cleaned up by someone
+    # who understands the intent of the code here.
+    actual_link_style = legacy_output_style_to_link_style(output_style)
+
+    return actual_link_style
+
 def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     sources = ctx.attrs.srcs
 
@@ -1155,21 +1172,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     if def_md_file:
         sub_targets["metadata"] = [DefaultInfo(default_output = def_md_file)]
 
-    pic_behavior = ctx.attrs._cxx_toolchain[CxxToolchainInfo].pic_behavior
-    link_style = cxx_toolchain_link_style(ctx)
-    output_style = get_lib_output_style(
-        to_link_strategy(link_style),
-        preferred_linkage,
-        pic_behavior,
-    )
-
-    # TODO(cjhopman): this haskell implementation does not consistently handle LibOutputStyle
-    # and LinkStrategy as expected and it's hard to tell what the intent of the existing code is
-    # and so we currently just preserve its existing use of the legacy LinkStyle type and just
-    # naively convert it at the boundaries of other code. This needs to be cleaned up by someone
-    # who understands the intent of the code here.
-    actual_link_style = legacy_output_style_to_link_style(output_style)
-
+    actual_link_style = _get_actual_link_style(ctx, preferred_linkage)
     default_output = hlib_infos[actual_link_style].libs
 
     haddock = haskell_haddock_lib(
@@ -1912,6 +1915,9 @@ def make_haskell_link_group(
         allow_cache_upload: bool) -> list[Provider]:
     # TODO: for now
     preferred_linkage = Linkage("any")
+
+    actual_link_style = _get_actual_link_style(ctx, preferred_linkage)
+
     providers = []
     lg_provider = HaskellLinkGroupProvider(
         link_group = {},
@@ -2012,8 +2018,7 @@ def make_haskell_link_group(
                 extra_lib_dyns = extra_lib_dyns,
             ))
 
-            # for now
-            if link_style == LinkStyle("shared"):
+            if link_style == actual_link_style:
                 providers.append(DefaultInfo(default_outputs = [lib]))
 
             lg_provider.link_group[link_style] = HaskellLinkGroupInfo(
