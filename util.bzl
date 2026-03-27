@@ -104,11 +104,13 @@ def attr_deps_haskell_link_group_infos(ctx: AnalysisContext, link_style: LinkSty
                libs.append(p.link_group[link_style])
     return dedupe(libs)
 
-def attr_deps_haskell_link_group_tsets(ctx: AnalysisContext) -> list[HaskellLinkGroupTSet]:
+def attr_deps_haskell_link_group_tsets(ctx: AnalysisContext, link_style: LinkStyle) -> list[HaskellLinkGroupTSet]:
     direct_deps_lg_tsets = []
     for d in attr_deps(ctx):
-        if d.get(HaskellLinkGroupTSetProvider):
-            direct_deps_lg_tsets.append(d.get(HaskellLinkGroupTSetProvider).link_group_tsets)
+        p = d.get(HaskellLinkGroupTSetProvider)
+        if p:
+            if p.link_group_tsets.get(link_style):
+                direct_deps_lg_tsets.append(p.link_group_tsets[link_style])
     return direct_deps_lg_tsets
 
 def attr_deps_haskell_toolchain_libraries(ctx: AnalysisContext) -> list[HaskellToolchainLibrary]:

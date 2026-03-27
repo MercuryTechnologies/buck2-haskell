@@ -1614,7 +1614,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         arg = _DynamicLinkBinaryOptions(
             deps = attr_deps(ctx),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
-            direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx),
+            direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx, link_style),
             enable_profiling = enable_profiling,
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
             haskell_toolchain = haskell_toolchain,
@@ -2019,7 +2019,9 @@ def make_haskell_link_group(
         DefaultInfo(default_outputs = [lib]),
         lg_provider,
         HaskellLinkGroupTSetProvider(
-            link_group_tsets = link_group_tsets,
+            link_group_tsets = {
+                link_style: link_group_tsets,
+            },
         ),
     ]
 

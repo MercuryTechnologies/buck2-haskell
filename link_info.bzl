@@ -82,7 +82,7 @@ HaskellLinkGroupTSet = transitive_set(
 
 HaskellLinkGroupTSetProvider = provider(
     fields = {
-        "link_group_tsets": provider_field(HaskellLinkGroupTSet),
+        "link_group_tsets": provider_field(dict[LinkStyle, HaskellLinkGroupTSet]),
     },
 )
 
