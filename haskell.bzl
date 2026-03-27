@@ -1906,14 +1906,14 @@ def make_haskell_link_group(
         *,
         label: Label,
         hlibs: list[HaskellLibraryInfo],
-        direct_deps_info: list[HaskellLibraryInfoTSet],
-        direct_deps_lg_tsets: list[HaskellLinkGroupTSet],
         link_style: LinkStyle,
         enable_profiling: bool,
         registerer: RunInfo,
         haskell_toolchain: HaskellToolchainInfo,
         linker_info: LinkerInfo,
         allow_cache_upload: bool) -> list[Provider]:
+    direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos_sans_template_deps(ctx)]
+    direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx, link_style)
     actions = ctx.actions
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
     dynamic_lib_suffix = "." + LINKERS[linker_info.type].default_shared_library_extension
@@ -2039,16 +2039,11 @@ def haskell_link_group_impl(ctx: AnalysisContext) -> list[Provider]:
         hlib = dep.get(HaskellLibraryProvider)
         if hlib:
             hlibs.append(hlib.lib[link_style])
-    direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos(ctx)]
-
-    direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx)
 
     results = make_haskell_link_group(
         ctx,
         label = ctx.label,
         hlibs = hlibs,
-        direct_deps_info = direct_deps_info,
-        direct_deps_lg_tsets = direct_deps_lg_tsets,
         link_style = link_style,
         enable_profiling = enable_profiling,
         registerer = registerer,
