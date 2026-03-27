@@ -90,6 +90,7 @@ load(
     ":link_info.bzl",
     "ExtraGhcLinkerFlagsInfo",
     "GhcLinkableInfo",
+    "HaskellLinkGroupInfo",
     "HaskellLinkGroupProvider",
     "HaskellLinkGroupTSet",
     "HaskellLinkGroupTSetProvider",
@@ -111,7 +112,7 @@ load(
     ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_lib_infos",
-    "attr_deps_haskell_link_group_providers",
+    "attr_deps_haskell_link_group_infos",
     "attr_deps_haskell_link_group_tsets",
     "attr_deps_haskell_link_infos",
     "attr_deps_haskell_link_infos_sans_template_deps",
@@ -646,7 +647,7 @@ _DynamicLinkSharedOptions = record(
     linker_flags = list[typing.Any],  # args
     linker_info = LinkerInfo,
     objects = list[Artifact],
-    link_group_libs = list[HaskellLinkGroupProvider],
+    link_group_libs = list[HaskellLinkGroupInfo],
     toolchain_libs = list[str],
     project_libs = list[str],
     toolchain_libs_full = list[HaskellToolchainLibrary],
@@ -873,7 +874,7 @@ def _build_haskell_lib(
             lib.prof_info[link_style] if enable_profiling else lib.info[link_style]
             for lib in attr_deps_haskell_link_infos(ctx)
         ]
-        link_group_libs = attr_deps_haskell_link_group_providers(ctx)
+        link_group_libs = attr_deps_haskell_link_group_infos(ctx, link_style)
 
         ctx.actions.dynamic_output_new(_dynamic_link_shared(
             pkg_deps = haskell_toolchain.packages.dynamic,
@@ -1303,7 +1304,7 @@ _DynamicLinkBinaryOptions = record(
     link_haskell_objects_at_once = bool,
     linker_flags = list[typing.Any],  # Arguments.
     direct_deps_info = list[HaskellLibraryInfoTSet],
-    link_group_libs = list[HaskellLinkGroupProvider],
+    link_group_libs = list[HaskellLinkGroupInfo],
     toolchain_libs = list[str],
     allow_cache_upload = bool,
 )
@@ -1596,7 +1597,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         lib.prof_info[link_style] if enable_profiling else lib.info[link_style]
         for lib in attr_deps_haskell_link_infos(ctx)
     ]
-    link_group_libs = attr_deps_haskell_link_group_providers(ctx)
+    link_group_libs = attr_deps_haskell_link_group_infos(ctx, link_style)
 
     if link_style == LinkStyle("shared"):
         output_symlink_dir = ctx.actions.declare_output(
@@ -1646,7 +1647,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             resources_hidden.extend(resource.other_outputs)
 
     if link_style == LinkStyle("shared"):
-        run = cmd_args(output, hidden = [output_symlink_dir] + [link_group.lib for link_group in link_group_libs] + resources_hidden)
+        run = cmd_args(output, hidden = [output_symlink_dir] + [lginfo.lib for lginfo in link_group_libs] + resources_hidden)
     else:
         run = cmd_args(output, hidden = resources_hidden)
 
@@ -1998,15 +1999,19 @@ def make_haskell_link_group(
     ))
 
     lg_provider = HaskellLinkGroupProvider(
-        pkgname = pkgname,
-        db = db,
-        lib = lib,
-        libraries = hlibs,
+        link_group = {
+            link_style: HaskellLinkGroupInfo(
+                pkgname = pkgname,
+                db = db,
+                lib = lib,
+                libraries = hlibs,
+            ),
+        },
     )
 
     link_group_tsets = actions.tset(
         HaskellLinkGroupTSet,
-        value = lg_provider,
+        value = lg_provider.link_group[link_style],
         children = direct_deps_lg_tsets,
     )
 

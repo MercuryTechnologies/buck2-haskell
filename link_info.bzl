@@ -31,30 +31,38 @@ HaskellLinkInfo = provider(
     },
 )
 
-# Provider for HaskellLinkGroup information
+# A record of a Haskell link group info
+HaskellLinkGroupInfo = record(
+    # The Haskell link group package name
+    pkgname = str,
+    # The Haskell link group db artifact
+    db = Artifact,
+    # The resultant Haskell link group library
+    lib = Artifact,
+    # Component libraries
+    libraries = list[HaskellLibraryInfo],
+)
 
+# Provider for HaskellLinkGroup information
 HaskellLinkGroupProvider = provider(
     fields = {
-        "pkgname": provider_field(str),
-        "db": provider_field(Artifact),
-        "lib": provider_field(Artifact),
-        "libraries": provider_field(list[HaskellLibraryInfo]),
+        "link_group": provider_field(dict[LinkStyle, HaskellLinkGroupInfo]),
     },
 )
 
-def _project_as_package_db(lg: HaskellLinkGroupProvider) -> cmd_args:
+def _project_as_package_db(lg: HaskellLinkGroupInfo) -> cmd_args:
     return cmd_args(lg.db)
 
-def _project_as_package(lg: HaskellLinkGroupProvider) -> cmd_args:
+def _project_as_package(lg: HaskellLinkGroupInfo) -> cmd_args:
     return cmd_args(lg.pkgname, hidden = [lg.lib])
 
-def _get_link_group_deps(children: list[list[str]], lg: HaskellLinkGroupProvider | None) -> list[str]:
+def _get_link_group_deps(children: list[list[str]], lg: HaskellLinkGroupInfo | None) -> list[str]:
     flatted = flatten(children)
     if lg:
         flatted.append(lg.pkgname)
     return flatted
 
-def _get_components(children: list[list[str]], lg: HaskellLinkGroupProvider | None) -> list[str]:
+def _get_components(children: list[list[str]], lg: HaskellLinkGroupInfo | None) -> list[str]:
     flatted = flatten(children)
     if lg:
         libs = [ l.name for l in lg.libraries ]

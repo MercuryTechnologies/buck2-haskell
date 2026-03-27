@@ -27,6 +27,7 @@ load(
 )
 load(
     ":link_info.bzl",
+    "HaskellLinkGroupInfo",
     "HaskellLinkGroupProvider",
     "HaskellLinkGroupTSet",
     "HaskellLinkGroupTSetProvider",
@@ -94,14 +95,14 @@ def attr_deps_haskell_link_infos(ctx: AnalysisContext) -> list[HaskellLinkInfo]:
         ],
     ))
 
-def attr_deps_haskell_link_group_providers(ctx: AnalysisContext) -> list[HaskellLinkGroupProvider]:
-    return dedupe(filter(
-        None,
-        [
-            d.get(HaskellLinkGroupProvider)
-            for d in attr_deps(ctx)
-        ],
-    ))
+def attr_deps_haskell_link_group_infos(ctx: AnalysisContext, link_style: LinkStyle) -> list[HaskellLinkGroupInfo]:
+    libs = []
+    for d in attr_deps(ctx):
+       p = d.get(HaskellLinkGroupProvider)
+       if p:
+           if p.link_group.get(link_style):
+               libs.append(p.link_group[link_style])
+    return dedupe(libs)
 
 def attr_deps_haskell_link_group_tsets(ctx: AnalysisContext) -> list[HaskellLinkGroupTSet]:
     direct_deps_lg_tsets = []
