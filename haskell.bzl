@@ -676,18 +676,19 @@ def _dynamic_link_shared_impl(
     )
 
     packagedb_args = cmd_args()
+    link_args = cmd_args()
+    link_cmd_hidden = []
+
     for d in list(libs.traverse()):
         if d.name in all_link_group_ids:
             packagedb_args.add(cmd_args(d.empty_db))
         else:
             packagedb_args.add(cmd_args(d.db))
+            link_cmd_hidden.extend(d.libs)
     for lg in arg.link_group_libs:
         packagedb_args.add(cmd_args(lg.db))
 
     packagedb_args.add(package_db_tset.project_as_args("package_db"))
-
-    link_args = cmd_args()
-    link_cmd_hidden = []
 
     link_args.add(arg.haskell_toolchain.linker_flags)
     link_args.add(arg.linker_flags)
@@ -699,7 +700,6 @@ def _dynamic_link_shared_impl(
     for item in arg.haskell_direct_deps_lib_infos:
         if not item.id in all_link_group_ids:
             link_args.add(cmd_args(item.name, prepend = "-package"))
-            link_cmd_hidden.extend(item.libs)
 
     link_args.add(cmd_args(package_db_tset.project_as_args("package_db"), prepend = "-package-db"))
 
