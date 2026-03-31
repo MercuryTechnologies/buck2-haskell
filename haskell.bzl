@@ -1366,6 +1366,7 @@ def _dynamic_link_binary_impl(
     if arg.link_haskell_objects_at_once:  # when link_haskell_objects_at_once = True
         for hlib in lib_tset.traverse():
             packagedb_args.add(cmd_args(hlib.empty_db))
+            package_args.add(hlib.name)
             # Add all the transitive objects except for those in link group.
             # for now, only non-profiled binary
             is_profiled = False
