@@ -102,9 +102,9 @@ load(":pkg_conf.bzl", "append_pkg_conf_link_fields_for_link_infos")
 load(":resources.bzl", "haskell_attr_resources")
 load(
     ":toolchain.bzl",
-    "DynamicHaskellPackageDbInfo",
+    "DynamicHaskellToolchainPackageDbInfo",
     "DynamicHaskellToolchainLibraryInfo",
-    "HaskellPackageDbTSet",
+    "HaskellToolchainPackageDbTSet",
     "HaskellToolchainInfo",
     "HaskellToolchainLibrary",
 )
@@ -161,7 +161,7 @@ def _toolchain_target_metadata_impl(
         libname: str,
         pkg_deps: ResolvedDynamicValue,
         md_gen: RunInfo) -> list[Provider]:
-    package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
+    package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].packages
 
     md_args = cmd_args(md_gen, "--ghc-pkg", haskell_toolchain.packager, "--package-name", libname, "--output", output)
     if libname in package_db:
@@ -666,12 +666,12 @@ def _dynamic_link_shared_impl(
     # link group
     all_link_group_ids = [l.id for lg in arg.link_group_libs for l in lg.libraries]
 
-    package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
+    package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].packages
 
     libs = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
     all_deps = libs.reduce("packages")
     package_db_tset = actions.tset(
-        HaskellPackageDbTSet,
+        HaskellToolchainPackageDbTSet,
         children = [package_db[name] for name in (arg.toolchain_libs + all_deps) if name in package_db],
     )
 
@@ -1322,7 +1322,7 @@ def _dynamic_link_binary_impl(
     link_args = arg.link_args.copy()  # link is already frozen, make a copy
     link_cmd_hidden = []
 
-    package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
+    package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].packages
 
     link_args.add("-hide-all-packages")
 
@@ -1338,7 +1338,7 @@ def _dynamic_link_binary_impl(
     all_toolchain_libs = arg.toolchain_libs + lib_tset.reduce("packages")
 
     toolchain_package_db_tset = actions.tset(
-        HaskellPackageDbTSet,
+        HaskellToolchainPackageDbTSet,
         children = [package_db[name] for name in all_toolchain_libs if name in package_db],
     )
 
@@ -1422,7 +1422,7 @@ def _dynamic_link_binary_impl(
         for x in toolchain_package_db_tset.traverse():
             shlibs.append(x.path)
         shlibs_dict = {}
-        # for now, we are just using numbers. Let's make proper naming when HaskellPackage
+        # for now, we are just using numbers. Let's make proper naming when HaskellToolchainPackage
         # for toolchain libraries can have more metadata information.
         i = 0
         for x in shlibs:
@@ -1752,7 +1752,7 @@ def _dynamic_link_group_shared_impl(
     link_args.add(arg.haskell_toolchain.linker_flags)
 
     toolchain_deps = [d.name for d in arg.toolchain_deps]
-    package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
+    package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].packages
 
     packagedb_args = cmd_args()
     package_args = cmd_args()
@@ -1760,7 +1760,7 @@ def _dynamic_link_group_shared_impl(
 
     # toolchain package db
     package_db_tset = actions.tset(
-        HaskellPackageDbTSet,
+        HaskellToolchainPackageDbTSet,
         children = [package_db[name] for name in toolchain_deps if name in package_db],
     )
     packagedb_args.add(package_db_tset.project_as_args("package_db"))

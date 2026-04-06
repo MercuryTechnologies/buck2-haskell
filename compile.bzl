@@ -39,10 +39,10 @@ load(
 )
 load(
     ":toolchain.bzl",
-    "DynamicHaskellPackageDbInfo",
-    "HaskellPackageDbTSet",
+    "DynamicHaskellToolchainPackageDbInfo",
     "HaskellToolchainInfo",
     "HaskellToolchainLibrary",
+    "HaskellToolchainPackageDbTSet",
 )
 load(
     ":util.bzl",
@@ -753,7 +753,7 @@ def get_packages_info(
             exposed_package_args.add(hidden_args)
 
     if pkg_deps:
-        package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
+        package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].packages
     else:
         package_db = {}
 
@@ -766,7 +766,7 @@ def get_packages_info(
     toolchain_libs = direct_toolchain_libs + libs.reduce("packages")
 
     package_db_tset = actions.tset(
-        HaskellPackageDbTSet,
+        HaskellToolchainPackageDbTSet,
         children = [package_db[name] for name in toolchain_libs if name in package_db],
     )
 
@@ -802,7 +802,7 @@ CommonCompileModuleArgs = record(
     oneshot_wrapper_args = field(cmd_args),
     package_env_args = field(cmd_args),
     target_deps_args = field(cmd_args),
-    package_db = field(dict[str,HaskellPackageDbTSet]),
+    package_db = field(dict[str,HaskellToolchainPackageDbTSet]),
 )
 
 def add_worker_args(
@@ -1018,7 +1018,7 @@ def _common_compile_module_args(
     args_for_file.add(cmd_args(pre_args, format = "-optP={}"))
 
     if arg.haskell_toolchain.packages:
-        package_db = pkg_deps.providers[DynamicHaskellPackageDbInfo].packages
+        package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].packages
     else:
         package_db = []
 
@@ -1039,7 +1039,7 @@ def _common_compile_module_args(
 
 
         toolchain_package_db_tset = actions.tset(
-            HaskellPackageDbTSet,
+            HaskellToolchainPackageDbTSet,
             children = [package_db[name] for name in toolchain_libs if name in package_db],
         )
 

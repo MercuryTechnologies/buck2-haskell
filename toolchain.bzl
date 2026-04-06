@@ -11,11 +11,11 @@ HaskellPlatformInfo = provider(fields = {
     "name": provider_field(typing.Any, default = None),
 })
 
-HaskellPackagesInfo = record(
+HaskellToolchainPackagesInfo = record(
     dynamic = DynamicValue,
 )
 
-HaskellPackage = record(
+HaskellToolchainPackage = record(
     db = ArgLike,
     path = Artifact,
 )
@@ -47,7 +47,7 @@ HaskellToolchainInfo = provider(
         "ghci_packager": provider_field(typing.Any, default = None),
         "cache_links": provider_field(typing.Any, default = None),
         "script_template_processor": provider_field(Dependency | None, default = None),
-        "packages": provider_field(HaskellPackagesInfo | None, default = None),
+        "packages": provider_field(HaskellToolchainPackagesInfo | None, default = None),
         "use_persistent_workers": provider_field(bool, default = False),
         "use_worker": provider_field(bool, default = False),
         "ghc_dir": provider_field(Artifact | None, default = None),
@@ -70,13 +70,13 @@ DynamicHaskellToolchainLibraryInfo = provider(
     },
 )
 
-def _haskell_package_info_as_package_db(p: HaskellPackage):
+def _haskell_package_info_as_package_db(p: HaskellToolchainPackage):
     return cmd_args(p.db)
 
-def _haskell_package_set_root(children: list[HaskellPackage], p: HaskellPackage | None):
+def _haskell_package_set_root(children: list[HaskellToolchainPackage], p: HaskellToolchainPackage | None):
     return p
 
-HaskellPackageDbTSet = transitive_set(
+HaskellToolchainPackageDbTSet = transitive_set(
     args_projections = {
         "package_db": _haskell_package_info_as_package_db,
     },
@@ -85,8 +85,8 @@ HaskellPackageDbTSet = transitive_set(
     },
 )
 
-DynamicHaskellPackageDbInfo = provider(fields = {
-    "packages": dict[str, HaskellPackageDbTSet],
+DynamicHaskellToolchainPackageDbInfo = provider(fields = {
+    "packages": dict[str, HaskellToolchainPackageDbTSet],
 })
 
 def _toolchain(lang: str, providers: list[typing.Any]) -> Attr:
