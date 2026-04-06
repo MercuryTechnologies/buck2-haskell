@@ -91,7 +91,7 @@ def _get_package_deps(children: list[list[str]], lib: HaskellLibraryInfo | None)
         flatted.extend(lib.dependencies)
     return dedupe_by_value(flatted)
 
-def _get_package_toolchain_deps(
+def _get_toolchain_packages(
         children: list[list[HaskellToolchainLibrary]],
         lib: HaskellLibraryInfo | None) -> list[HaskellToolchainLibrary]:
     flatted = flatten(children)
@@ -116,7 +116,7 @@ HaskellLibraryInfoTSet = transitive_set(
     },
     reductions = {
         "packages": _get_package_deps,
-        "toolchain_packages": _get_package_toolchain_deps,
+        "toolchain_packages": _get_toolchain_packages,
     },
     json_projections = {
         "dep_units": _json_as_dep_units,

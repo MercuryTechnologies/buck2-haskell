@@ -1335,7 +1335,7 @@ def _dynamic_link_binary_impl(
 
     lib_tset = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
 
-    all_toolchain_libs = arg.toolchain_libs + lib_tset.reduce("packages")
+    all_toolchain_libs = arg.toolchain_libs + [p.name for p in lib_tset.reduce("toolchain_packages")]
 
     toolchain_package_db_tset = actions.tset(
         HaskellToolchainPackageDbTSet,
