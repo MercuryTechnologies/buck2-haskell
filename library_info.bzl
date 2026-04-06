@@ -55,8 +55,11 @@ HaskellLibraryInfo = record(
     version = str,
     is_prebuilt = bool,
     profiling_enabled = bool,
-    # Toolchain package dependencies
+
+    # All dependencies (untyped) = in-project deps + toolchain deps
+    # TODO: Make this typed by separating out in-project deps.
     dependencies = list[str],
+    # Toolchain package dependencies
     toolchain_dependencies = list[HaskellToolchainLibrary],
     md_file = Artifact | None,
 )
