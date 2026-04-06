@@ -20,6 +20,7 @@ load(
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
 )
+load(":toolchain.bzl", "HaskellToolchainLibrary")
 
 # A list of `HaskellLibraryInfo`s.
 HaskellLinkInfo = provider(
@@ -69,6 +70,15 @@ def _get_components(children: list[list[str]], lg: HaskellLinkGroupInfo | None) 
         flatted.extend(libs)
     return flatted
 
+def _get_toolchain_packages(
+        children: list[list[HaskellToolchainLibrary]],
+        lg: HaskellLinkGroupInfo | None) -> list[HaskellToolchainLibrary]:
+    flatted = flatten(children)
+    if lg:
+        libs = [p for l in lg.libraries for p in l.toolchain_dependencies]
+        flatted.extend(libs)
+    return dedupe(flatted)
+
 HaskellLinkGroupTSet = transitive_set(
     args_projections = {
         "package_db": _project_as_package_db,
@@ -77,6 +87,7 @@ HaskellLinkGroupTSet = transitive_set(
     reductions = {
         "link_group_deps": _get_link_group_deps,
         "components": _get_components,
+        "toolchain_packages": _get_toolchain_packages,
     },
 )
 
