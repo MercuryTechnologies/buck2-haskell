@@ -67,7 +67,13 @@ load("@prelude//tests:re_utils.bzl", "get_re_executors_from_props")
 load("@prelude//utils:argfile.bzl", "at_argfile")
 load("@prelude//utils:arglike.bzl", "ArgLike")
 load("@prelude//utils:set.bzl", "set")
-load("@prelude//utils:utils.bzl", "filter_and_map_idx", "flatten", "flatten_dict")
+load(
+    "@prelude//utils:utils.bzl",
+    "dedupe_by_value",
+    "filter_and_map_idx",
+    "flatten",
+    "flatten_dict",
+)
 load("@prelude//:resources.bzl", "ResourceInfo", "create_resource_db", "gather_resources")
 load(
     ":compile.bzl",
@@ -1335,7 +1341,11 @@ def _dynamic_link_binary_impl(
 
     lib_tset = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
 
-    all_toolchain_libs = arg.toolchain_libs + [p.name for p in lib_tset.reduce("toolchain_packages")]
+    all_toolchain_libs0 = []
+    all_toolchain_libs0.extend(arg.toolchain_libs)
+    all_toolchain_libs0.extend([p.name for p in lib_tset.reduce("toolchain_packages")])
+    all_toolchain_libs0.extend([p.name for p in link_group_tset.reduce("toolchain_packages")])
+    all_toolchain_libs = dedupe_by_value(all_toolchain_libs0)
 
     toolchain_package_db_tset = actions.tset(
         HaskellToolchainPackageDbTSet,
