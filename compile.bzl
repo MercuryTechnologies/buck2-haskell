@@ -753,7 +753,7 @@ def get_packages_info(
             exposed_package_args.add(hidden_args)
 
     if pkg_deps:
-        package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].packages
+        package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
     else:
         package_db = {}
 
@@ -774,7 +774,7 @@ def get_packages_info(
     # direct and transitive (e.g. `fbcode-common-hs-util-hs-array`)
     local_packagedb_args.add(packagedb_set.keys())
 
-    packagedb_args.add(package_db_tset.project_as_args("package_db"))
+    packagedb_args.add(package_db_tset.project_as_args("toolchain_package_db"))
 
     local_package_flag = "-package-id" if use_worker else "-package"
 
@@ -1018,7 +1018,7 @@ def _common_compile_module_args(
     args_for_file.add(cmd_args(pre_args, format = "-optP={}"))
 
     if arg.haskell_toolchain.packages:
-        package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].packages
+        package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
     else:
         package_db = []
 
@@ -1056,7 +1056,7 @@ def _common_compile_module_args(
         for lg in arg.link_group_libs:
             packagedb_args.add(cmd_args(lg.db))
 
-        packagedb_args.add(toolchain_package_db_tset.project_as_args("package_db"))
+        packagedb_args.add(toolchain_package_db_tset.project_as_args("toolchain_package_db"))
 
         package_env_file = make_package_env(
             actions = actions,
