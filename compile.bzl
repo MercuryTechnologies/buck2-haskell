@@ -753,9 +753,9 @@ def get_packages_info(
             exposed_package_args.add(hidden_args)
 
     if pkg_deps:
-        package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
+        toolchain_package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
     else:
-        package_db = {}
+        toolchain_package_db = {}
 
     direct_toolchain_libs = [
         dep[HaskellToolchainLibrary].name
@@ -765,16 +765,16 @@ def get_packages_info(
 
     toolchain_libs = direct_toolchain_libs + libs.reduce("packages")
 
-    package_db_tset = actions.tset(
+    toolchain_package_db_tset = actions.tset(
         HaskellToolchainPackageDbTSet,
-        children = [package_db[name] for name in toolchain_libs if name in package_db],
+        children = [toolchain_package_db[name] for name in toolchain_libs if name in toolchain_package_db],
     )
 
     # These we need to add for all the packages/dependencies, i.e.
     # direct and transitive (e.g. `fbcode-common-hs-util-hs-array`)
     local_packagedb_args.add(packagedb_set.keys())
 
-    packagedb_args.add(package_db_tset.project_as_args("toolchain_package_db"))
+    packagedb_args.add(toolchain_package_db_tset.project_as_args("toolchain_package_db"))
 
     local_package_flag = "-package-id" if use_worker else "-package"
 
@@ -802,7 +802,7 @@ CommonCompileModuleArgs = record(
     oneshot_wrapper_args = field(cmd_args),
     package_env_args = field(cmd_args),
     target_deps_args = field(cmd_args),
-    package_db = field(dict[str,HaskellToolchainPackageDbTSet]),
+    toolchain_package_db = field(dict[str,HaskellToolchainPackageDbTSet]),
 )
 
 def add_worker_args(
@@ -1018,9 +1018,9 @@ def _common_compile_module_args(
     args_for_file.add(cmd_args(pre_args, format = "-optP={}"))
 
     if arg.haskell_toolchain.packages:
-        package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
+        toolchain_package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
     else:
-        package_db = []
+        toolchain_package_db = []
 
     if is_worker_execute:
         package_env_args = cmd_args()
@@ -1040,7 +1040,7 @@ def _common_compile_module_args(
 
         toolchain_package_db_tset = actions.tset(
             HaskellToolchainPackageDbTSet,
-            children = [package_db[name] for name in toolchain_libs if name in package_db],
+            children = [toolchain_package_db[name] for name in toolchain_libs if name in toolchain_package_db],
         )
 
         if incremental:
@@ -1091,7 +1091,7 @@ def _common_compile_module_args(
         args_for_file = args_for_file,
         package_env_args = package_env_args,
         target_deps_args = target_deps_args,
-        package_db = package_db,
+        toolchain_package_db = toolchain_package_db,
     )
 
 # Arguments for GHC when running in oneshot mode.
@@ -1280,7 +1280,7 @@ def _compile_module(
     toolchain_deps = categorized_package_deps.toolchain_deps
     hidden_toolchain_deps = []
     for p in toolchain_deps:
-        pkg = common_args.package_db.get(p)
+        pkg = common_args.toolchain_package_db.get(p)
         if pkg:
             hidden_toolchain_deps.append(pkg.value.path)
 

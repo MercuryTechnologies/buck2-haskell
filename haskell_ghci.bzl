@@ -633,11 +633,11 @@ def _ghci_resolve_toolchain_pkgs_impl(
         pkg_deps: ResolvedDynamicValue,
         output: OutputArtifact,
         arg) -> list[Provider]:
-    package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
+    toolchain_package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
 
     toolchain_package_db_tset = actions.tset(
         HaskellToolchainPackageDbTSet,
-        children = [package_db[name] for name in arg.toolchain_libs if name in package_db],
+        children = [toolchain_package_db[name] for name in arg.toolchain_libs if name in toolchain_package_db],
     )
 
     pkg_db_args = cmd_args(
