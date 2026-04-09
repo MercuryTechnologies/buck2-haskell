@@ -180,7 +180,7 @@ def haskell_haddock_lib(ctx: AnalysisContext, pkgname: str, compiled: CompileRes
             haddock = ctx.actions.declare_output("haddock-interface/{}.haddock".format(src_to_module_name(hi.short_path))),
             html = ctx.actions.declare_output("haddock-html", _haddock_module_to_html(src_to_module_name(hi.short_path))),
         )
-        for hi in compiled.hi
+        for hi in compiled.interfaces
         if not hi.extension.endswith("-boot")
     }
 

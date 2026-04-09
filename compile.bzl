@@ -118,7 +118,9 @@ DynamicCompileResultInfo = provider(fields = {
 # The type of the return value of the `_compile()` function.
 CompileResultInfo = record(
     objects = field(list[Artifact]),
-    hi = field(list[Artifact]),
+    extra_objects = field(list[Artifact]),
+    interfaces = field(list[Artifact]),
+    extra_interfaces = field(list[Artifact]),
     hie = field(list[Artifact]),
     stubs = field(Artifact),
     hashes = field(list[Artifact]),
@@ -133,12 +135,19 @@ PackagesInfo = record(
     transitive_deps = field(HaskellLibraryInfoTSet),
 )
 
+# A record that holds module compilation results.
+# NOTE: extra_interfaces and extra_objects are needed to hold
+# dyn_hi/dyn_o artifacts built with static build. Those files
+# are needed for compiling modules with TH for one-shot mode,
+# unfortunately.
 _Module = record(
     name = field(str),
     source = field(Artifact),
     interfaces = field(list[Artifact]),
+    extra_interfaces = field(list[Artifact]),
     hash = field(Artifact | None),
     objects = field(list[Artifact]),
+    extra_objects = field(list[Artifact]),
     hie_files = field(list[Artifact]),
     stub_dir = field(Artifact | None),
     prefix_dir = field(str),
@@ -148,9 +157,11 @@ def _get_module_outputs(
         module: _Module,
         outputs: dict[Artifact, OutputArtifact]) -> list[OutputArtifact]:
     objects = [outputs[obj] for obj in module.objects]
+    extra_objects = [outputs[obj] for obj in module.extra_objects]
     his = [outputs[hi] for hi in module.interfaces]
+    extra_his = [outputs[hi] for hi in module.extra_interfaces]
     hies = [outputs[hie] for hie in module.hie_files]
-    return objects + his + hies
+    return objects + extra_objects + his + extra_his + hies
 
 _DynamicDoCompileOptions = record(
     artifact_suffix = str,
@@ -248,10 +259,13 @@ def _modules_by_name(
             dyn_osuf, dyn_hisuf = output_extensions(LinkStyle("shared"), enable_profiling)
             interface_path = paths.replace_extension(short_path_stripped, "." + dyn_hisuf + bootsuf)
             interface = ctx.actions.declare_output("mod-" + suffix, interface_path)
-            interfaces.append(interface)
+            extra_interfaces = [interface]
             object_path = paths.replace_extension(short_path_stripped, "." + dyn_osuf + bootsuf)
             object = ctx.actions.declare_output("mod-" + suffix, object_path)
-            objects.append(object)
+            extra_objects = [object]
+        else:
+            extra_interfaces = []
+            extra_objects = []
 
         if ctx.attrs.incremental:
             if bootsuf == "":
@@ -267,8 +281,10 @@ def _modules_by_name(
             name = module_name,
             source = src,
             interfaces = interfaces,
+            extra_interfaces = extra_interfaces,
             hash = hash,
             objects = objects,
+            extra_objects = extra_objects,
             hie_files = hie_files,
             stub_dir = stub_dir,
             prefix_dir = prefix_dir,
@@ -1112,7 +1128,9 @@ def _compile_oneshot_args(
     args.add(packagedb_tag.tag_artifacts(common_args.package_env_args))
 
     objects = [outputs[obj] for obj in module.objects]
+    extra_objects = [outputs[obj] for obj in module.extra_objects]
     his = [outputs[hi] for hi in module.interfaces]
+    extra_his = [outputs[hi] for hi in module.extra_interfaces]
     hies = [outputs[hie] for hie in module.hie_files]
 
     args.add("-o", objects[0])
@@ -1134,8 +1152,8 @@ def _compile_oneshot_args(
 
     is_dynamic_too_added = _add_dynamic_too_if_required(is_worker_execute, link_style, args)
     if is_dynamic_too_added:
-        args.add("-dyno", objects[1])
-        args.add("-dynohi", his[1])
+        args.add("-dyno", extra_objects[0])
+        args.add("-dynohi", extra_his[0])
 
     args.add(link_args)
 
@@ -1857,7 +1875,9 @@ def compile(
     )
 
     interfaces = [interface for module in modules.values() for interface in module.interfaces]
+    extra_interfaces = [interface for module in modules.values() for interface in module.extra_interfaces]
     objects = [object for module in modules.values() for object in module.objects]
+    extra_objects = [object for module in modules.values() for object in module.extra_objects]
     hie_files = [hie_file for module in modules.values() for hie_file in module.hie_files]
     stub_dirs = [
         module.stub_dir
@@ -1907,7 +1927,10 @@ def compile(
         incremental = incremental,
         md_file = md_file,
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
-        outputs = {o: o.as_output() for o in interfaces + objects + hie_files + stub_dirs + abi_hashes},
+        outputs = {
+            o: o.as_output()
+            for o in interfaces + extra_interfaces + objects + extra_objects + hie_files + stub_dirs + abi_hashes
+        },
         direct_deps_by_name = {
             info.value.name: (info.value.empty_db, info.value.dynamic[enable_profiling])
             for info in direct_deps_info
@@ -1975,7 +1998,9 @@ def compile(
 
     return CompileResultInfo(
         objects = objects,
-        hi = interfaces,
+        extra_objects = extra_objects,
+        interfaces = interfaces,
+        extra_interfaces = extra_interfaces,
         hashes = abi_hashes,
         stubs = stubs_dir,
         hie = hie_files,

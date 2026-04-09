@@ -951,8 +951,8 @@ def _build_haskell_lib(
             False: non_profiling_hlib.compiled.module_tsets,
         }
         interface_artifacts = {
-            True: compiled.hi,
-            False: non_profiling_hlib.compiled.hi,
+            True: compiled.interfaces,
+            False: non_profiling_hlib.compiled.interfaces,
         }
         object_artifacts = {
             True: compiled.objects,
@@ -969,7 +969,7 @@ def _build_haskell_lib(
             False: compiled.module_tsets,
         }
         interface_artifacts = {
-            False: compiled.hi,
+            False: compiled.interfaces,
         }
         object_artifacts = {
             False: compiled.objects,
@@ -1160,7 +1160,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
                     tset = derive_indexing_tset(
                         ctx.actions,
                         link_style,
-                        compiled.hi,
+                        compiled.interfaces,
                         attr_deps(ctx),
                     )
                     indexing_tsets[link_style] = tset
@@ -1555,7 +1555,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     indexing_tsets = {}
     if compiled.producing_indices:
-        tset = derive_indexing_tset(ctx.actions, link_style, compiled.hi, attr_deps(ctx))
+        tset = derive_indexing_tset(ctx.actions, link_style, compiled.interfaces, attr_deps(ctx))
         indexing_tsets[link_style] = tset
 
     if link_style == LinkStyle("shared"):
@@ -1651,7 +1651,7 @@ def _haskell_module_sub_targets(
     return {
         "interfaces": [DefaultInfo(sub_targets = {
             src_to_module_name(hi.short_path): [DefaultInfo(default_output = hi)]
-            for hi in compiled.hi
+            for hi in compiled.interfaces
             if hi.extension[1:] == hisuf
         })],
         "objects": [DefaultInfo(sub_targets = {
