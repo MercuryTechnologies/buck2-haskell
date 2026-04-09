@@ -1,0 +1,27 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_library",
+)
+
+haskell_library(
+    name = "pkgA",
+    srcs = ["A.hs"],
+    deps = ["//tests:base"],
+)
+
+haskell_binary(
+    name = "app",
+    srcs = ["app.hs"],
+    deps = [
+        ":pkgA",
+        "//tests:base",
+    ],
+    link_style = "static_pic",
+    link_haskell_objects_at_once = True,
+)
+
+sh_test(
+    name = "test_app",
+    test = ":app",
+)
