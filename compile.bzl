@@ -1242,6 +1242,7 @@ def _compile_make_args(
         module_name,
         "--home-unit",
         md_file,
+        "-c",
         hidden = [
             _get_module_outputs(module, outputs),
             module.source,
