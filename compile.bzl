@@ -1873,7 +1873,8 @@ def compile(
         worker: WorkerInfo | None = None,
         incremental: bool = False,
         is_haskell_binary: bool = False,
-        is_interp: bool = False) -> CompileResultInfo:
+        is_interp: bool = False,
+        extra_srcs: list = []) -> CompileResultInfo:
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
@@ -1881,7 +1882,7 @@ def compile(
 
     modules = _modules_by_name(
         ctx,
-        sources = ctx.attrs.srcs,
+        sources = ctx.attrs.srcs + extra_srcs,
         is_worker_execute = is_worker_execute,
         link_style = link_style,
         enable_profiling = enable_profiling,

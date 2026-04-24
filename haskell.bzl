@@ -2137,13 +2137,26 @@ def haskell_eval_test_impl(ctx: AnalysisContext) -> list[Provider]:
     enable_profiling = False
     artifact_suffix = get_artifact_suffix(link_style, False)
 
+    # This top-level generated haskell file forces the rule to have imported modules.
+    toplevel = ctx.actions.declare_output("TopLevel.hs")
+
+    import_str = ""
+    for imp in ctx.attrs.imports:
+        import_str += "import {} ()\n".format(imp)
+
+    ctx.actions.write(toplevel.as_output(), '''
+module TopLevel where
+
+{}
+'''.format(import_str))
+
     md_file = target_metadata(
         ctx,
         link_style = link_style,
         enable_profiling = False,
         enable_haddock = False,
         main = None,
-        sources = sources,
+        sources = sources + [toplevel],
         worker = worker,
     )
 
@@ -2160,11 +2173,11 @@ def haskell_eval_test_impl(ctx: AnalysisContext) -> list[Provider]:
         pkgname = pkgname,
         is_haskell_binary = True,
         is_interp = True,
+        extra_srcs = [toplevel],
     )
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
-
-    modname = ctx.attrs.modname
+    modname = src_to_module_name(sources[0].short_path) # ctx.attrs.modname
 
     eval_target_name = str(ctx.label.path).replace("//","_").replace("/","_") + "_" + ctx.label.name + ":eval"
 
@@ -2179,6 +2192,8 @@ def haskell_eval_test_impl(ctx: AnalysisContext) -> list[Provider]:
         dyn_compile_result_info = compiled.module_tsets,
         output = output.as_output(),
     ))
+
+    args_imports = cmd_args(ctx.attrs.imports, prepend="--import")
 
     args_hidden = []
     args_hidden.append(interfaces.values())
@@ -2203,6 +2218,7 @@ def haskell_eval_test_impl(ctx: AnalysisContext) -> list[Provider]:
             "--eval-target-name",
             eval_target_name,
             hidden = args_hidden),
+        args_imports,
         cmd_args(ctx.attrs.compiler_flags),
     ]
 

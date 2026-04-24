@@ -350,6 +350,7 @@ haskell_eval_test = rule(
         {
             "modname": attrs.string(),
             "expr": attrs.string(),
+            "imports": attrs.list(attrs.string(), default = []),
             "allow_worker": attrs.bool(default = True),
             "labels": attrs.list(attrs.string(), default = []),
 
