@@ -79,9 +79,13 @@ def is_haskell_boot(x: str) -> bool:
     _, ext = paths.split_extension(x)
     return ext in HASKELL_BOOT_EXTENSIONS
 
-def src_to_module_name(x: str) -> str:
-    base, _ext = paths.split_extension(x)
-    return base.replace("/", ".")
+def src_to_module_name(x: str, predefined_name_map: dict[str, str] = {}) -> str:
+    predefined = predefined_name_map.get(x)
+    if predefined:
+        return predefined
+    else:
+        base, _ext = paths.split_extension(x)
+        return base.replace("/", ".")
 
 def attr_deps(ctx: AnalysisContext) -> list[Dependency]:
     return ctx.attrs.deps + (getattr(ctx.attrs, "deps_query", []) or [])
