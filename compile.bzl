@@ -1509,7 +1509,7 @@ def _compile_incr(
             allow_cache_upload = arg.allow_cache_upload,
         )
 
-def compile_args(
+def compile_args_for_non_incr(
         actions: AnalysisActions,
         haskell_toolchain: HaskellToolchainInfo,
         md_file: Artifact,
@@ -1685,7 +1685,7 @@ def _compile_non_incr(
     args = cmd_args(hidden = outputs.values())
     args.add("--ghc", haskell_toolchain.compiler)
     args.add(
-        compile_args(
+        compile_args_for_non_incr(
             actions,
             haskell_toolchain = haskell_toolchain,
             md_file = arg.md_file,
