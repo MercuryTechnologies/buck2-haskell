@@ -202,6 +202,10 @@ _common_binary_attrs = (
         "main": attrs.option(attrs.string(), default = None, doc = """
             A custom entry point for your Haskell program. If not specified, the default is Main.main.
         """),
+        "src_main": attrs.option(attrs.source(), default = None, doc = """
+            The source file of the Main module. The Main module is special since the file name
+            does not have to match with the module name and we can omit 'module Main where'.
+        """),
     } |
     native_common.link_group_deps() |
     native_common.link_group_public_deps_label() |
