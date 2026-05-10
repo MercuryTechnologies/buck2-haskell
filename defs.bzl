@@ -200,8 +200,7 @@ _common_binary_attrs = (
     # @unsorted-dict-items
     {
         "main": attrs.option(attrs.string(), default = None, doc = """
-            The main module serving as the entry point into the binary. If not specified,
-                the compiler default is used.
+            A custom entry point for your Haskell program. If not specified, the default is Main.main.
         """),
     } |
     native_common.link_group_deps() |
