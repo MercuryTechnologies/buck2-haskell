@@ -815,6 +815,7 @@ def _build_haskell_lib(
         worker = worker,
         incremental = ctx.attrs.incremental,
         is_haskell_binary = False,
+        src_main = None,
     )
     solibs = {}
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
@@ -1521,6 +1522,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         worker = worker,
         pkgname = pkgname,
         is_haskell_binary = True,
+        src_main = ctx.attrs.src_main,
     )
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]

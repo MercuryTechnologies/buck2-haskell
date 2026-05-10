@@ -208,8 +208,12 @@ def _modules_by_name(
         enable_profiling: bool,
         suffix: str,
         module_prefix: str | None,
-        is_haskell_binary: bool) -> dict[str, _Module]:
+        is_haskell_binary: bool,
+        src_main: Artifact | None) -> dict[str, _Module]:
     modules = {}
+    predefined_name_map = {}
+    if is_haskell_binary and src_main:
+        predefined_name_map[src_main.short_path] = "Main"
 
     osuf, hisuf = output_extensions(link_style, enable_profiling)
 
@@ -220,42 +224,44 @@ def _modules_by_name(
         elif not is_haskell_src(src.short_path):
             continue
 
-        module_name = src_to_module_name(src.short_path) + bootsuf
-        if module_prefix:
-            short_path_stripped = module_prefix.replace(".", "/") + "/" + src.short_path
-            interface_path = paths.replace_extension(short_path_stripped, "." + hisuf + bootsuf)
-            module_name = "{}.{}".format(module_prefix, module_name)
+        module_name = src_to_module_name(src.short_path, predefined_name_map) + bootsuf
+        if module_name == "Main":
+            interface_path = "Main." + hisuf
+            object_path = "Main." + osuf
+            hie_path = "Main.hie"
         else:
-            s = src.short_path
-            for prefix in ctx.attrs.strip_prefix:
-                s1 = strip_prefix(prefix, src.short_path)
-                if s1 != None:
-                    module_name = _strip_prefix(".", _strip_prefix(prefix.replace("/", "."), module_name))
-                    s = s1
-                    break
-            short_path_stripped = _strip_prefix("/", s)
-            interface_path = paths.replace_extension(short_path_stripped, "." + hisuf + bootsuf)
+            if module_prefix:
+                short_path_stripped = module_prefix.replace(".", "/") + "/" + src.short_path
+                interface_path = paths.replace_extension(short_path_stripped, "." + hisuf + bootsuf)
+                module_name = "{}.{}".format(module_prefix, module_name)
+            else:
+                s = src.short_path
+                for prefix in ctx.attrs.strip_prefix:
+                    s1 = strip_prefix(prefix, src.short_path)
+                    if s1 != None:
+                        module_name = _strip_prefix(".", _strip_prefix(prefix.replace("/", "."), module_name))
+                        s = s1
+                        break
+                short_path_stripped = _strip_prefix("/", s)
+                interface_path = paths.replace_extension(short_path_stripped, "." + hisuf + bootsuf)
+            object_path = paths.replace_extension(short_path_stripped, "." + osuf + bootsuf)
+            hie_path = paths.replace_extension(short_path_stripped, ".hie")
+
         interface = ctx.actions.declare_output("mod-" + suffix, interface_path)
         interfaces = [interface]
 
-        object_path = paths.replace_extension(short_path_stripped, "." + osuf + bootsuf)
         object = ctx.actions.declare_output("mod-" + suffix, object_path)
         objects = [object]
 
-        # TODO(wavewave): when we extract module name directly, we don't have to discern this case.
-        if not is_haskell_binary:
-            hie_path = paths.replace_extension(short_path_stripped, ".hie")
-            hie_file = ctx.actions.declare_output("mod-" + suffix, hie_path)
-            hie_files = [hie_file]
-        else:
-            hie_files = []
+        hie_file = ctx.actions.declare_output("mod-" + suffix, hie_path)
+        hie_files = [hie_file]
 
         if ctx.attrs.incremental:
             hash = ctx.actions.declare_output("mod-" + suffix, interface_path + ".hash")
         else:
             hash = None
 
-        if link_style in [LinkStyle("static"), LinkStyle("static_pic")] and not is_worker_execute:
+        if link_style in [LinkStyle("static"), LinkStyle("static_pic")] and not is_worker_execute and module_name != "Main":
             dyn_osuf, dyn_hisuf = output_extensions(LinkStyle("shared"), enable_profiling)
             interface_path = paths.replace_extension(short_path_stripped, "." + dyn_hisuf + bootsuf)
             interface = ctx.actions.declare_output("mod-" + suffix, interface_path)
@@ -985,7 +991,6 @@ def _common_compile_module_args(
         direct_deps_by_name: dict[str, _DirectDep],
         pkg_deps: ResolvedDynamicValue | None) -> CommonCompileModuleArgs:
     is_worker_execute = arg.is_worker_execute
-
     unit_params = UnitParams(
         name = arg.pkgname,
         link_style = arg.link_style,
@@ -1857,7 +1862,8 @@ def compile(
         pkgname: str,
         worker: WorkerInfo | None = None,
         incremental: bool = False,
-        is_haskell_binary: bool = False) -> CompileResultInfo:
+        is_haskell_binary: bool = False,
+        src_main: Artifact | None = None) -> CompileResultInfo:
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
@@ -1872,6 +1878,7 @@ def compile(
         suffix = artifact_suffix,
         module_prefix = ctx.attrs.module_prefix,
         is_haskell_binary = is_haskell_binary,
+        src_main = src_main,
     )
 
     interfaces = [interface for module in modules.values() for interface in module.interfaces]
