@@ -91,6 +91,8 @@ load(
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
     "HaskellPackageConfInfo",
+    "HaskellSourceInfo",
+    "HaskellSourcesTSet",
 )
 load(
     ":link_info.bzl",
@@ -133,6 +135,7 @@ load(
     "output_extensions",
     "src_to_module_name",
     "srcs_to_pairs",
+    "strip_source_prefix",
     "to_hash",
 )
 
@@ -1241,6 +1244,58 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         resources = haskell_attr_resources(ctx),
         deps = attr_deps(ctx),
     )))
+
+    # For list-style srcs, short_path is relative to the package directory.
+    # Prepend the package path to get cell-root-relative paths, then strip.
+    # Two kinds of packages need different prefix handling:
+    #   - Sub-packages at e.g. //src/App/Foo with glob(["*.hs"]):
+    #       short_path = "Foo.hs", cell-root = "src/App/Foo/Foo.hs"
+    #       strip "src/" -> "App/Foo/Foo.hs"  (bare cell-root prefix)
+    #   - Packages at e.g. //local-packages/pkg with glob(["src/**/*.hs"]):
+    #       short_path = "src/A/Foo.hs", cell-root = "local-packages/pkg/src/A/Foo.hs"
+    #       strip "local-packages/pkg/src/" -> "A/Foo.hs"  (package-relative prefix)
+    # So we try package-relative prefixes first, then bare strip_prefix entries.
+    _pkg = ctx.label.package
+    if type(sources) == type({}):
+        _path_pairs = [(k, v) for (k, v) in sources.items() if is_haskell_src(k)]
+    else:
+        _path_pairs = [
+            (paths.join(_pkg, src.short_path) if _pkg else src.short_path, src)
+            for src in sources
+            if is_haskell_src(src.short_path)
+        ]
+    _strip_prefixes = (
+        [paths.join(_pkg, p) for p in ctx.attrs.strip_prefix] +
+        list(ctx.attrs.strip_prefix)
+    )
+    src_pairs = [
+        (strip_source_prefix(path, _strip_prefixes), artifact)
+        for (path, artifact) in _path_pairs
+    ]
+    src_children = [
+        dep[HaskellSourceInfo].srcs
+        for dep in attr_deps(ctx)
+        if HaskellSourceInfo in dep
+    ]
+    # Node value carries both source pairs and this library's compiler flags.
+    # The flags (e.g. -D__LOCAL_PACKAGE_ROOT__) are needed for TH splices that
+    # depend on CPP defines to locate data files at the right path.
+    src_tset = ctx.actions.tset(
+        HaskellSourcesTSet,
+        value = struct(
+            srcs = src_pairs,
+            # Only propagate CPP defines (-D...) for GHCi's interpreted mode.
+            # Linker flags (-l, -L) cause GHCi to dlopen native libs which the
+            # omnibus SO already handles. Location macros would produce literal
+            # $(location ...) text in the bash script. Only CPP defines like
+            # -D__LOCAL_PACKAGE_ROOT__ affect TH splices and need propagation.
+            # Buck2 wraps ResolvedStringWithMacros values in quotes when str()d,
+            # so strip quotes before checking the prefix.
+            compiler_flags = [str(f).strip('"') for f in ctx.attrs.compiler_flags if str(f).strip('"').startswith("-D")],
+        ),
+        children = src_children,
+    )
+    providers.append(HaskellSourceInfo(srcs = src_tset))
 
     return providers
 

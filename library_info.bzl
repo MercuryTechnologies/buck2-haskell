@@ -80,10 +80,10 @@ def _project_as_package_db(lib: HaskellLibraryInfo) -> cmd_args:
     return cmd_args(lib.db)
 
 def _project_as_empty_package_db(lib: HaskellLibraryInfo) -> cmd_args:
-    return cmd_args(lib.empty_db)
+    return cmd_args(lib.empty_db) if lib.empty_db != None else cmd_args()
 
 def _project_as_deps_package_db(lib: HaskellLibraryInfo) -> cmd_args:
-    return cmd_args(lib.deps_db)
+    return cmd_args(lib.deps_db) if lib.deps_db != None else cmd_args()
 
 def _project_as_libs(lib: HaskellLibraryInfo) -> cmd_args:
     return cmd_args(lib.libs)
@@ -123,5 +123,16 @@ HaskellLibraryInfoTSet = transitive_set(
     },
     json_projections = {
         "dep_units": _json_as_dep_units,
+    },
+)
+
+# Transitive set carrying (module_path, source_artifact) pairs from haskell_library targets.
+# Each node's value is a list of (str, Artifact) where str is the path relative to the
+# source root (strip_prefix applied), e.g. "App/Foo.hs".
+HaskellSourcesTSet = transitive_set()
+
+HaskellSourceInfo = provider(
+    fields = {
+        "srcs": provider_field(HaskellSourcesTSet),
     },
 )
