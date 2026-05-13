@@ -168,18 +168,38 @@ def obtain_target_metadata(args):
         }
     else:
         output = read_json(args.build_plan)
-        build_plan = copy.copy(output)
+        # Distinguish formats by a positively-identifying structural key, not by
+        # `cache`-presence: a worker run with a cold cache writes `cache: None`
+        # but is still the worker shape, and would otherwise be misclassified as
+        # raw GHC dep-json (which has Module.Name-style keys at the top level
+        # and never has structural snake_case keys like "module_graph").
+        if "module_graph" in output:
+            # Persistent worker format: pre-computed fields plus raw module data in "cache".
+            build_plan = copy.copy(output)
+            build_plan["build_plan"] = None
+            cache = build_plan.get("cache")
+            build_plan["module_mapping"] = (
+                determine_module_mapping(cache, args.source_prefix) if cache is not None
+                else build_plan.get("module_mapping")
+            )
+        else:
+            # Raw GHC dep-json format (module names as keys): process the same way as the non-worker path.
+            build_plan = {
+                "exposed_modules": determine_exposed_modules(output),
+                "th_modules": determine_th_modules(output),
+                "module_mapping": determine_module_mapping(output, args.source_prefix),
+                "module_graph": determine_module_graph(output),
+                "package_deps": determine_package_deps(output),
+                "build_plan": output,
+                "project_deps": None,
+                "toolchain_deps": None,
+                "cache": None,
+            }
     # The GHC options used to initialize the home unit env are required by the persistent worker in order to restore the
     # state from cache.
     build_plan["unit_args"] = args.unit_args
     build_plan["unit_buck_args"] = args.unit_buck_args
     build_plan["dep_units"] = args.dep_units
-    if build_plan.get("cache", None) == None:
-        build_plan["build_plan"] = output
-    else:
-        build_plan["build_plan"] = None
-    if args.build_plan != None:
-        build_plan["module_mapping"] = determine_module_mapping(build_plan["cache"], args.source_prefix)
     return build_plan
 
 

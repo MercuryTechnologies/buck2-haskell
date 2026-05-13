@@ -176,6 +176,8 @@ def main() -> int:
         "srcs",
         "preload_libs",
         "squashed_so",
+        # -i flag pointing to symlinked dir of source files from non-Haskell deps
+        "dep_srcs_flag",
     ]
 
     for str_arg in STRING_ARGS:
@@ -200,6 +202,7 @@ def main() -> int:
         "srcs": args.srcs,
         "squashed_so": args.squashed_so,
         "preload_libs": args.preload_libs,
+        "dep_srcs_flag": args.dep_srcs_flag,
     }
 
     _replace_template_values(

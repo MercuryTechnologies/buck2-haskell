@@ -35,3 +35,9 @@ prelude.python_bootstrap_binary(
     main = "ghc_pkg_registerer.py",
     visibility = ["PUBLIC"],
 )
+
+prelude.python_bootstrap_binary(
+    name = "compute_exposed_packages",
+    main = "compute_exposed_packages.py",
+    visibility = ["PUBLIC"],
+)
