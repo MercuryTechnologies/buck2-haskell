@@ -87,6 +87,13 @@ def src_to_module_name(x: str, predefined_name_map: dict[str, str] = {}) -> str:
         base, _ext = paths.split_extension(x)
         return base.replace("/", ".")
 
+def strip_source_prefix(path: str, strip_prefix: list[str]) -> str:
+    """Strip the first matching strip_prefix entry from a source path to get the module-relative path."""
+    for prefix in strip_prefix:
+        if path.startswith(prefix + "/"):
+            return path[len(prefix) + 1:]
+    return path
+
 def attr_deps(ctx: AnalysisContext) -> list[Dependency]:
     return ctx.attrs.deps + (getattr(ctx.attrs, "deps_query", []) or [])
 
@@ -139,16 +146,23 @@ def attr_deps_haskell_link_infos_sans_template_deps(ctx: AnalysisContext) -> lis
 def attr_deps_haskell_lib_infos(
         ctx: AnalysisContext,
         link_style: LinkStyle,
-        enable_profiling: bool) -> list[HaskellLibraryInfo]:
+        enable_profiling: bool,
+        skip_missing_link_style: bool = False) -> list[HaskellLibraryInfo]:
     if enable_profiling and link_style == LinkStyle("shared"):
         fail("Profiling isn't supported when using dynamic linking")
-    return [
-        x.prof_lib[link_style] if enable_profiling else x.lib[link_style]
-        for x in filter(None, [
-            d.get(HaskellLibraryProvider)
-            for d in attr_deps(ctx) + ctx.attrs.template_deps
-        ])
-    ]
+    results = []
+    for x in filter(None, [
+        d.get(HaskellLibraryProvider)
+        for d in attr_deps(ctx) + ctx.attrs.template_deps
+    ]):
+        lib = x.prof_lib if enable_profiling else x.lib
+        if skip_missing_link_style:
+            info = lib.get(link_style)
+            if info != None:
+                results.append(info)
+        else:
+            results.append(lib[link_style])
+    return results
 
 def attr_deps_merged_link_infos(ctx: AnalysisContext) -> list[MergedLinkInfo]:
     return dedupe(filter(
