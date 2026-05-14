@@ -261,14 +261,18 @@ def _modules_by_name(
         else:
             hash = None
 
-        if link_style in [LinkStyle("static"), LinkStyle("static_pic")] and not is_worker_execute and module_name != "Main":
+        if link_style in [LinkStyle("static"), LinkStyle("static_pic")] and not is_worker_execute:
             dyn_osuf, dyn_hisuf = output_extensions(LinkStyle("shared"), enable_profiling)
-            interface_path = paths.replace_extension(short_path_stripped, "." + dyn_hisuf + bootsuf)
-            interface = ctx.actions.declare_output("mod-" + suffix, interface_path)
-            extra_interfaces = [interface]
-            object_path = paths.replace_extension(short_path_stripped, "." + dyn_osuf + bootsuf)
-            object = ctx.actions.declare_output("mod-" + suffix, object_path)
-            extra_objects = [object]
+            if module_name == "Main":
+                extra_interface_path = "Main." + dyn_hisuf
+                extra_object_path = "Main." + dyn_osuf
+            else:
+                extra_interface_path = paths.replace_extension(short_path_stripped, "." + dyn_hisuf + bootsuf)
+                extra_object_path = paths.replace_extension(short_path_stripped, "." + dyn_osuf + bootsuf)
+            extra_interface = ctx.actions.declare_output("mod-" + suffix, extra_interface_path)
+            extra_interfaces = [extra_interface]
+            extra_object = ctx.actions.declare_output("mod-" + suffix, extra_object_path)
+            extra_objects = [extra_object]
         else:
             extra_interfaces = []
             extra_objects = []
