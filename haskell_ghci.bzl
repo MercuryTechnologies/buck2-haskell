@@ -72,6 +72,7 @@ load(
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
     "HaskellPackageConfInfo",
+    "HaskellSourceInfo",
 )
 load(":link_info.bzl", "HaskellLinkInfo")
 load(
@@ -685,6 +686,36 @@ _ghci_resolve_toolchain_pkgs = dynamic_actions(
     },
 )
 
+# Forces all toolchain package-db artifacts to be materialized on disk by
+# creating a symlinked directory that points to each package's out.link dir.
+# This is needed for haskell_ghci_global where no Haskell compilation step runs
+# (so the packages would otherwise never be built/downloaded locally).
+def _ghci_force_toolchain_pkgs_impl(
+        actions: AnalysisActions,
+        pkg_deps: ResolvedDynamicValue,
+        pkgdbs_dir: OutputArtifact,
+        arg) -> list[Provider]:
+    toolchain_package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
+
+    pkg_symlinks = {}
+    for name in arg.toolchain_libs:
+        if name in toolchain_package_db:
+            pkg = toolchain_package_db[name].reduce("toolchain_root")
+            if pkg != None:
+                pkg_symlinks[name] = pkg.path
+
+    actions.symlinked_dir(pkgdbs_dir, pkg_symlinks)
+    return []
+
+_ghci_force_toolchain_pkgs = dynamic_actions(
+    impl = _ghci_force_toolchain_pkgs_impl,
+    attrs = {
+        "pkg_deps": dynattrs.dynamic_value(),
+        "pkgdbs_dir": dynattrs.output(),
+        "arg": dynattrs.value(typing.Any),
+    },
+)
+
 def _write_ghci_src_package_conf_impl(
         actions: AnalysisActions,
         md_file: ArtifactValue,
@@ -1193,3 +1224,334 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         RunInfo(args = run),
     ] + haskell_providers
 
+def _write_global_start_ghci(
+        ctx: AnalysisContext,
+        script_file: Artifact):
+    start_cmd = cmd_args()
+    start_cmd.add("System.Environment.unsetEnv \"LD_PRELOAD\"")
+
+    header_ghci = ctx.actions.declare_output("header.ghci")
+    ctx.actions.write(header_ghci.as_output(), start_cmd)
+
+    if ctx.attrs.ghci_init:
+        append_ghci_init = cmd_args()
+        append_ghci_init.add(
+            ["sh", "-c", 'cat "$1" "$2" > "$3"', "--", header_ghci, ctx.attrs.ghci_init, script_file.as_output()],
+        )
+        ctx.actions.run(append_ghci_init, category = "append_ghci_init")
+    else:
+        ctx.actions.copy_file(script_file, header_ghci)
+
+def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
+    enable_profiling = ctx.attrs.enable_profiling
+    haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
+
+    ghci_script_template = haskell_toolchain.ghci_script_template
+    if not ghci_script_template:
+        fail("ghci_script_template missing in haskell_toolchain")
+
+    start_ghci_file = ctx.actions.declare_output("start.ghci")
+    _write_global_start_ghci(ctx, start_ghci_file)
+
+    ghci_bin = ctx.actions.declare_output(ctx.attrs.name + ".bin/ghci")
+    _symlink_ghci_binary(ctx, ghci_bin, haskell_toolchain)
+
+    preload_deps_info = _build_preload_deps_root(ctx, haskell_toolchain)
+
+    iserv_script = _write_iserv_script(
+        ctx,
+        preload_deps_info,
+        haskell_toolchain,
+        enable_profiling,
+    )
+
+    dep = ctx.attrs.dep
+    link_style = LinkStyle("shared")
+
+    # Collect all transitive source files and per-library compiler flags.
+    # Each TSet node carries struct(srcs=[(path, artifact)], compiler_flags=[str]).
+    # Compiler flags include CPP defines (e.g. -D__LOCAL_PACKAGE_ROOT__) needed for TH.
+
+    # Exclude source files belonging to precompiled_deps packages from the source tree.
+    # GHCi treats files in the -i search path as home modules, which take priority over
+    # precompiled packages. By removing those sources, GHCi is forced to use the
+    # precompiled .hi files instead of recompiling them interpreted.
+    precompiled_src_paths = {}
+    for precompiled_dep in ctx.attrs.precompiled_deps:
+        if HaskellSourceInfo in precompiled_dep:
+            for node in precompiled_dep[HaskellSourceInfo].srcs.traverse():
+                for (module_path, _) in node.srcs:
+                    precompiled_src_paths[module_path] = None
+
+    src_symlinks = {}
+    lib_compiler_flags_seen = {}
+    lib_compiler_flags = []
+    for node in dep[HaskellSourceInfo].srcs.traverse():
+        for (module_path, artifact) in node.srcs:
+            if module_path not in precompiled_src_paths:
+                src_symlinks[module_path] = artifact  # last-write-wins on conflict
+        for flag in node.compiler_flags:
+            if flag not in lib_compiler_flags_seen:
+                lib_compiler_flags_seen[flag] = None
+                lib_compiler_flags.append(flag)
+
+    src_tree = ctx.actions.symlinked_dir(ctx.label.name + ".all-srcs", src_symlinks)
+    dep_srcs_flag = '-i"${DIR}/' + src_tree.short_path + '"'
+
+    # Build omnibus SO from the dep's transitive C/C++ deps.
+    omnibus_data = _build_haskell_omnibus_so(
+        ctx,
+        omnibus_roots = [dep] + list(ctx.attrs.preload_deps) + ctx.attrs.template_deps,
+    )
+
+    # Get transitive toolchain package info from dep's HaskellLibraryInfoTSet.
+    # Toolchain packages (aeson, QuickCheck, etc.) are haskell_toolchain_library targets;
+    # they don't appear in HaskellLinkInfo but are tracked in lib.dependencies and
+    # lib.toolchain_dependencies on each HaskellLibraryInfo node.
+    toolchain_libs = []
+    toolchain_packages = []
+    prebuilt_db_set = {}
+    lib_tset = dep[HaskellLinkInfo].info.get(link_style)
+    if lib_tset != None:
+        toolchain_libs = lib_tset.reduce("packages")
+        toolchain_packages = lib_tset.reduce("toolchain_packages")
+        # Also collect any genuine prebuilt package dbs (is_prebuilt=True in HaskellLinkInfo).
+        for lib in lib_tset.traverse():
+            if lib.is_prebuilt:
+                prebuilt_db_set[lib.db] = None
+
+    # Load first-party packages from precompiled_deps as precompiled units.
+    # For each dep, traverse its HaskellLinkInfo to collect the full transitive closure.
+    # Each package gets a symlink tree (packagedb/, mod-*/, lib-*/) that GHCi uses to
+    # load precompiled .hi interfaces and .so libraries instead of interpreting source.
+    # The source tree is kept so users can still :l individual files to override a module.
+    precompiled_pkg_names = []
+    first_party_package_symlinks = []
+    first_party_package_symlinks_root = ctx.label.name + ".packages"
+    first_party_packagedb_args = cmd_args(delimiter = " ")
+    seen_precompiled = {}
+    # Extra toolchain package names referenced by precompiled_deps' transitive closures
+    # but absent from the main dep's closure (e.g. test-only libs not depended on by the
+    # primary `dep`). These need to be in toolchain_pkgdbs.args so GHCi can satisfy their
+    # precompiled deps.
+    extra_toolchain_lib_names = {}
+    toolchain_lib_name_set = {pkg.name: None for pkg in toolchain_packages}
+    for precompiled_dep in ctx.attrs.precompiled_deps:
+        dep_lib_tset = precompiled_dep[HaskellLinkInfo].info.get(link_style)
+        if dep_lib_tset == None:
+            continue
+        for lib in dep_lib_tset.traverse():
+            if lib.is_prebuilt:
+                if lib.name not in toolchain_lib_name_set:
+                    extra_toolchain_lib_names[lib.name] = None
+                continue
+            # Collect toolchain deps of this first-party node that aren't in the main
+            # dep's closure. This catches toolchain packages that are only transitively
+            # reachable via precompiled_deps entries absent from the main dep's tset
+            # (e.g. a test-only library not in the primary `dep`'s closure).
+            for tc_dep in lib.toolchain_dependencies:
+                if tc_dep.name not in toolchain_lib_name_set:
+                    extra_toolchain_lib_names[tc_dep.name] = None
+            if lib.name in seen_precompiled:
+                continue
+            seen_precompiled[lib.name] = None
+            lib_symlinks_root = paths.join(first_party_package_symlinks_root, lib.name)
+            lib_symlinks = {"packagedb": lib.db}
+            for prof, import_dirs in lib.interfaces.items():
+                artifact_suffix = get_artifact_suffix(link_style, prof)
+                for imp in import_dirs:
+                    lib_symlinks["mod-" + artifact_suffix + "/" + imp.short_path] = imp
+            for o in lib.libs:
+                lib_symlinks[o.short_path] = o
+            symlinked = ctx.actions.symlinked_dir(lib_symlinks_root, lib_symlinks)
+            first_party_package_symlinks.append(symlinked)
+            first_party_packagedb_args.add(paths.join(lib_symlinks_root, "packagedb"))
+            precompiled_pkg_names.append(lib.name)
+
+    # Resolve Nix package-db paths for all toolchain packages via dynamic action.
+    # The output file contains "-package-db <nix-path>" lines; the ghci_script.tpl
+    # reads it via @${DIR}/toolchain_pkgdbs.args so GHCi can find toolchain packages.
+    toolchain_pkg_args_file = ctx.actions.declare_output("toolchain_pkgdbs.args")
+    # Symlinked dir of toolchain package out.link dirs — forces Buck2 to materialize
+    # each package-db on disk before GHCi runs (the write-args-file action is cacheable
+    # and doesn't guarantee materialization when its result is served from cache).
+    toolchain_pkgdbs_forced = None
+    if haskell_toolchain.packages:
+        # Use the "toolchain_packages" reduction (HaskellToolchainLibrary objects) as
+        # the authoritative source for all_toolchain_libs.  The "packages" string
+        # reduction is a superset that also includes first-party names, which are
+        # silently skipped by the dynamic action, but empirically it can miss some
+        # toolchain packages (e.g. leaf packages with no nix reverse-dependencies).
+        # The "toolchain_packages" reduction directly tracks toolchain deps via
+        # lib.toolchain_dependencies on every first-party node, so it is more reliable.
+        all_toolchain_libs = [pkg.name for pkg in toolchain_packages] + list(extra_toolchain_lib_names.keys())
+        ctx.actions.dynamic_output_new(_ghci_resolve_toolchain_pkgs(
+            pkg_deps = haskell_toolchain.packages.dynamic,
+            output = toolchain_pkg_args_file.as_output(),
+            arg = struct(toolchain_libs = all_toolchain_libs),
+        ))
+        toolchain_pkgdbs_forced = ctx.actions.declare_output(ctx.label.name + ".pkgdbs")
+        ctx.actions.dynamic_output_new(_ghci_force_toolchain_pkgs(
+            pkg_deps = haskell_toolchain.packages.dynamic,
+            pkgdbs_dir = toolchain_pkgdbs_forced.as_output(),
+            arg = struct(toolchain_libs = all_toolchain_libs),
+        ))
+    else:
+        ctx.actions.write(toolchain_pkg_args_file.as_output(), "")
+
+    # Build exposed-package flags. Package specs with parens can't be inlined
+    # into a bash exec line (bash treats '(' as special syntax), so we write
+    # them to an args file and reference it with '@' from the wrapper script.
+    #
+    # When thin_packages priority pairs are provided, the compute_exposed_packages
+    # script reads .conf files at build time to determine which modules each
+    # package owns, then emits -package flags with GHC thinning syntax to
+    # resolve conflicts automatically (no manual module lists needed).
+    exposed_packages_args_file = ctx.actions.declare_output("exposed_packages.args")
+    all_exposed_pkg_names = [pkg.name for pkg in toolchain_packages] + precompiled_pkg_names
+    if haskell_toolchain.packages and toolchain_pkgdbs_forced != None:
+        cep_args = cmd_args(
+            cmd_args(toolchain_pkgdbs_forced, format = "--pkgdbs-forced={}"),
+            cmd_args(json.encode(all_exposed_pkg_names), format = "--exposed-packages={}"),
+            cmd_args(json.encode(ctx.attrs.thin_packages), format = "--thin-pairs={}"),
+            cmd_args(exposed_packages_args_file.as_output(), format = "--output={}"),
+        )
+        ctx.actions.run(
+            cmd_args(
+                ctx.attrs._compute_exposed_packages[RunInfo],
+                at_argfile(
+                    actions = ctx.actions,
+                    name = "compute_exposed_packages.args",
+                    args = cep_args,
+                    allow_args = True,
+                ),
+            ),
+            category = "compute_exposed_packages",
+            local_only = True,
+        )
+    else:
+        lines = []
+        for name in all_exposed_pkg_names:
+            lines.extend(["-package", name])
+        ctx.actions.write(exposed_packages_args_file, "\n".join(lines))
+
+    prebuilt_packagedb_args = cmd_args(prebuilt_db_set.keys(), delimiter = " ") if prebuilt_db_set else None
+
+    compiler_flags = cmd_args(delimiter = " ")
+    # Hide all packages by default so only explicitly exposed ones are visible.
+    # This prevents ambiguous module errors when multiple packages (e.g. cryptohash,
+    # crypton, cryptonite) export the same module name.
+    # -package-env=- disables the user's Nix/ghc package env to avoid extra conflicts.
+    compiler_flags.add(["-hide-all-packages", "-package-env=-"])
+    # Suppress all warnings in the global interpreted REPL — they are noisy (especially
+    # custom lint plugins that fire on every module) and not actionable in a REPL session.
+    # Users who want warnings can pass -Wall via ctx.attrs.compiler_flags.
+    compiler_flags.add("-w")
+    if enable_profiling:
+        compiler_flags.add(["-prof", "-osuf p_o", "-hisuf p_hi"])
+    compiler_flags.add(lib_compiler_flags)
+    compiler_flags.add(ctx.attrs.compiler_flags)
+
+    # When a bash wrapper is requested, the inner ghci script gets a .ghci suffix
+    # so the wrapper can claim the plain ctx.label.name as the run entrypoint.
+    inner_script_name = ctx.label.name + ".ghci" if ctx.attrs.bash else ctx.label.name
+
+    final_ghci_script = _replace_macros_in_script_template(
+        ctx,
+        script_template = ghci_script_template,
+        haskell_toolchain = haskell_toolchain,
+        ghci_bin = ghci_bin,
+        exposed_package_args = None,  # global rule uses exposed_packages.args file instead
+        packagedb_args = first_party_packagedb_args if precompiled_pkg_names else None,
+        prebuilt_packagedb_args = prebuilt_packagedb_args,
+        start_ghci = start_ghci_file,
+        iserv_script = iserv_script,
+        squashed_so = omnibus_data.omnibus,
+        compiler_flags = compiler_flags,
+        srcs = "",
+        dep_srcs_flag = dep_srcs_flag,
+        output_name = inner_script_name,
+    )
+
+    extra_scripts = []
+    for script_template in ctx.attrs.extra_script_templates:
+        extra_script = _replace_macros_in_script_template(
+            ctx,
+            script_template = script_template,
+            haskell_toolchain = haskell_toolchain,
+            ghci_bin = ghci_bin,
+            prebuilt_packagedb_args = prebuilt_packagedb_args,
+        )
+        extra_scripts.append(extra_script)
+
+    # Collect native C library SOs from native_deps and symlink them into a
+    # "native_libs/" subdirectory so GHCi can load them at startup.
+    # The shell wrapper script passes them as positional args (RTLD_GLOBAL).
+    native_lib_symlinks = {}
+    for native_dep in ctx.attrs.native_deps:
+        for out in native_dep[DefaultInfo].default_outputs:
+            native_lib_symlinks[out.basename] = out
+    native_libs_dir = ctx.actions.symlinked_dir(
+        "native_libs",
+        native_lib_symlinks,
+    ) if native_lib_symlinks else None
+
+    outputs = [
+        start_ghci_file,
+        ghci_bin,
+        preload_deps_info.preload_deps_root,
+        iserv_script,
+        omnibus_data.omnibus,
+        omnibus_data.so_symlinks_root,
+        final_ghci_script,
+        toolchain_pkg_args_file,
+        src_tree,
+        exposed_packages_args_file,
+    ]
+    outputs.extend(extra_scripts)
+    outputs.extend(first_party_package_symlinks)
+    if native_libs_dir != None:
+        outputs.append(native_libs_dir)
+    if toolchain_pkgdbs_forced != None:
+        outputs.append(toolchain_pkgdbs_forced)
+
+    # If a bash dep is provided, generate a thin POSIX sh wrapper that prepends
+    # the Nix bash binary directory to PATH before exec-ing the real ghci script.
+    # This ensures bash 4+ features in ghci_script.tpl work on macOS (which ships
+    # bash 3.2) without requiring the user to have a newer bash on their PATH.
+    if ctx.attrs.bash:
+        bash_bin = ctx.attrs.bash[DefaultInfo].default_outputs[0]
+        bash_bin_dir = ctx.actions.symlinked_dir(
+            ctx.label.name + ".bash_bin",
+            {"bash": bash_bin},
+        )
+        outputs.append(bash_bin_dir)
+
+        wrapper = ctx.actions.declare_output(ctx.label.name)
+        wrapper_content = cmd_args(
+            "#!/bin/sh",
+            'DIR=$(cd "$(dirname "$0")" && pwd)',
+            cmd_args('export PATH="$DIR/', bash_bin_dir, ':$PATH"', delimiter = ""),
+            cmd_args('exec "$DIR/', final_ghci_script, '" "$@"', delimiter = ""),
+            relative_to = (wrapper, 1),
+        )
+        ctx.actions.write(wrapper, wrapper_content, is_executable = True)
+        outputs.append(wrapper)
+        run_script = wrapper
+    else:
+        run_script = final_ghci_script
+
+    output_artifacts = {o.short_path: o for o in outputs}
+    root_output_dir = ctx.actions.symlinked_dir(
+        "__{}__".format(ctx.label.name),
+        output_artifacts,
+    )
+
+    ghci_bin_dep = ctx.attrs.ghci_bin_dep.get(RunInfo) if ctx.attrs.ghci_bin_dep else None
+    hidden_dep = [ghci_bin_dep] if ghci_bin_dep else []
+    run = cmd_args(run_script, hidden = hidden_dep + outputs)
+
+    return [
+        DefaultInfo(default_outputs = [root_output_dir]),
+        RunInfo(args = run),
+    ]

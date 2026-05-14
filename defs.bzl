@@ -15,11 +15,11 @@ load(
     "haskell_toolchain_library_impl",
 )
 load(":ghc_plugin.bzl", "GhcPluginInfo", "ghc_plugin_impl")
-load(":haskell_ghci.bzl", "haskell_ghci_impl")
+load(":haskell_ghci.bzl", "haskell_ghci_global_impl", "haskell_ghci_impl")
 load(":haskell_haddock.bzl", "haskell_haddock_impl")
 load(":haskell_ide.bzl", "haskell_ide_impl")
-load(":library_info.bzl", "HaskellLibraryProvider")
-load(":link_info.bzl", "GhcLinkableInfo")
+load(":library_info.bzl", "HaskellLibraryProvider", "HaskellSourceInfo")
+load(":link_info.bzl", "GhcLinkableInfo", "HaskellLinkInfo")
 load(":toolchain.bzl", "haskell_toolchain")
 
 def _srcs_arg():
@@ -395,6 +395,56 @@ haskell_ghci = rule(
     ),
 )
 
+haskell_ghci_global = rule(
+    impl = haskell_ghci_global_impl,
+    attrs = (
+        # @unsorted-dict-items
+        {
+            "compiler_flags": attrs.list(attrs.string(), default = []),
+            "contacts": attrs.list(attrs.string(), default = []),
+            "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
+            "dep": attrs.dep(providers = [HaskellLinkInfo, HaskellSourceInfo]),
+            "enable_profiling": attrs.bool(default = False),
+            "bash": attrs.option(attrs.exec_dep(providers = [RunInfo]), default = None),
+            "precompiled_deps": attrs.list(attrs.dep(providers = [HaskellLinkInfo]), default = []),
+            "extra_script_templates": attrs.list(attrs.source(), default = []),
+            "ghci_bin_dep": attrs.option(attrs.dep(), default = None),
+            "ghci_init": attrs.option(attrs.source(), default = None),
+            "labels": attrs.list(attrs.string(), default = []),
+            "licenses": attrs.list(attrs.source(), default = []),
+            "linker_flags": attrs.list(attrs.arg(), default = []),
+            "platform": attrs.option(attrs.string(), default = None),
+            "native_deps": attrs.list(attrs.dep(), default = []),
+            "platform_preload_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
+            "preload_deps": attrs.set(attrs.dep(), sorted = True, default = []),
+            # List of (package_to_thin, preferred_package) pairs.
+            # When two packages export the same module name, thin the less-preferred
+            # package to expose only non-conflicting modules, letting the preferred
+            # package win for the overlapping names (GHC thinning syntax).
+            # Module lists are computed automatically from .conf files at build time.
+            # Thinning only applies when preferred_package is also present.
+            "thin_packages": attrs.list(
+                attrs.tuple(attrs.string(), attrs.string()),
+                default = [],
+            ),
+
+            # extra needed (from rules_impl.bzl)
+            "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
+            "_compute_exposed_packages": attrs.dep(
+                providers = [RunInfo],
+                default = "@buck2-haskell//tools:compute_exposed_packages",
+            ),
+            "_ghc_pkg_registerer": attrs.dep(
+                providers = [RunInfo],
+                default = "@buck2-haskell//tools:ghc_pkg_registerer",
+            ),
+            "_worker": attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None),
+            "_cxx_toolchain": toolchains_common.cxx(),
+            "_haskell_toolchain": haskell_toolchain(),
+        }
+    ),
+)
+
 haskell_haddock = rule(
     impl = haskell_haddock_impl,
     attrs = (
@@ -643,6 +693,7 @@ haskell_rules = struct(
     ghc_plugin = ghc_plugin,
     haskell_binary = haskell_binary,
     haskell_ghci = haskell_ghci,
+    haskell_ghci_global = haskell_ghci_global,
     haskell_haddock = haskell_haddock,
     haskell_ide = haskell_ide,
     haskell_library = haskell_library,
