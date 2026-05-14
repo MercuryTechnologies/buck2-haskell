@@ -56,17 +56,29 @@ load("@prelude//utils:utils.bzl", "flatten")
 load(
     ":compile.bzl",
     "PackagesInfo",
+    "compile",
     "get_packages_info",
+    "target_metadata",
+)
+load(
+    ":ghc_plugin.bzl",
+    "GhcPluginInfo",
+    "compute_plugin_flags",
+    "validate_plugins_attrs",
 )
 load(
     ":library_info.bzl",
     "HaskellLibraryInfo",
+    "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
+    "HaskellPackageConfInfo",
 )
+load(":link_info.bzl", "HaskellLinkInfo")
 load(
     ":toolchain.bzl",
     "DynamicHaskellToolchainPackageDbInfo",
     "HaskellToolchainInfo",
+    "HaskellToolchainLibrary",
     "HaskellToolchainPackageDbTSet",
 )
 load(
@@ -76,6 +88,7 @@ load(
     "attr_deps_haskell_link_group_infos",
     "attr_deps_haskell_link_infos",
     "get_artifact_suffix",
+    "make_haskell_names_from_label",
 )
 
 GHCiPreloadDepsInfo = record(
@@ -108,13 +121,21 @@ def _write_final_ghci_script(
         ghci_bin: Artifact,
         haskell_toolchain: HaskellToolchainInfo,
         ghci_script_template: Artifact,
-        enable_profiling: bool) -> Artifact:
-    srcs = " ".join(
-        [
-            paths.normalize(paths.join(str(ctx.label.path), str(s)))
-            for s in ctx.attrs.srcs
-        ],
-    )
+        enable_profiling: bool,
+        srcs_override: [str, None] = None,
+        ghci_exposed_package_args: [cmd_args, None] = None,
+        dep_srcs_flag: [str, None] = None) -> Artifact:
+    # When srcs are pre-compiled as a package, pass None to omit them from
+    # the GHCi script (they'll be loaded via -package instead).
+    if srcs_override != None:
+        srcs = srcs_override
+    else:
+        srcs = " ".join(
+            [
+                paths.normalize(paths.join(str(ctx.label.path), str(s)))
+                for s in ctx.attrs.srcs
+            ],
+        )
 
     # Collect compiler flags
     compiler_flags = cmd_args(
@@ -140,12 +161,17 @@ def _write_final_ghci_script(
     compiler_flags.add(ctx.attrs.compiler_flags)
     omnibus_so = omnibus_data.omnibus
 
+    effective_exposed_package_args = (
+        ghci_exposed_package_args if ghci_exposed_package_args != None
+        else packages_info.exposed_package_args
+    )
+
     final_ghci_script = _replace_macros_in_script_template(
         ctx,
         script_template = ghci_script_template,
         haskell_toolchain = haskell_toolchain,
         ghci_bin = ghci_bin,
-        exposed_package_args = packages_info.exposed_package_args,
+        exposed_package_args = effective_exposed_package_args,
         packagedb_args = packagedb_args,
         prebuilt_packagedb_args = prebuilt_packagedb_args,
         start_ghci = start_ghci_file,
@@ -153,12 +179,13 @@ def _write_final_ghci_script(
         squashed_so = omnibus_so,
         compiler_flags = compiler_flags,
         srcs = srcs,
+        dep_srcs_flag = dep_srcs_flag,
         output_name = ctx.label.name,
     )
 
     return final_ghci_script
 
-def _build_haskell_omnibus_so(ctx: AnalysisContext) -> HaskellOmnibusData:
+def _build_haskell_omnibus_so(ctx: AnalysisContext, omnibus_roots: list[Dependency] | None = None) -> HaskellOmnibusData:
     link_style = LinkStyle("static_pic")
     if False:
         # TODO(nga): typechecker raises issue here.
@@ -171,11 +198,12 @@ def _build_haskell_omnibus_so(ctx: AnalysisContext) -> HaskellOmnibusData:
     pic_behavior = PicBehavior("supported")
     preload_deps = ctx.attrs.preload_deps
 
-    all_deps = attr_deps(ctx) + preload_deps + ctx.attrs.template_deps
+    if omnibus_roots == None:
+        omnibus_roots = attr_deps(ctx) + preload_deps + ctx.attrs.template_deps
 
     linkable_graph_ = create_linkable_graph(
         ctx,
-        deps = all_deps,
+        deps = omnibus_roots,
     )
 
     # Keep only linkable nodes
@@ -192,7 +220,7 @@ def _build_haskell_omnibus_so(ctx: AnalysisContext) -> HaskellOmnibusData:
     }
 
     all_direct_deps = []
-    for dep in all_deps:
+    for dep in omnibus_roots:
         graph = dep.get(LinkableGraph)
         if graph:
             all_direct_deps.append(graph.label)
@@ -364,7 +392,8 @@ def _replace_macros_in_script_template(
         srcs: [str, None] = None,
         output_name: [str, None] = None,
         ghci_iserv_path: [Artifact, None] = None,
-        preload_libs: [str, None] = None) -> Artifact:
+        preload_libs: [str, None] = None,
+        dep_srcs_flag: [str, None] = None) -> Artifact:
     toolchain_paths = {
         BINUTILS_PATH: haskell_toolchain.ghci_binutils_path,
         GHCI_LIB_PATH: _get_default_output(haskell_toolchain.ghci_lib_path),
@@ -433,6 +462,7 @@ def _replace_macros_in_script_template(
         (srcs, srcs, "--srcs"),
         (ghci_iserv_path, ghci_iserv_path, "--ghci_iserv_path"),
         (preload_libs, preload_libs, "--preload_libs"),
+        (dep_srcs_flag, dep_srcs_flag, "--dep_srcs_flag"),
     ]
 
     for (orig_val, macro_value, flag) in optional_flags:
@@ -559,16 +589,15 @@ def _build_preload_deps_root(
     )
 
 # Symlink the ghci binary that will be used, e.g. the internal fork in Haxlsh
-def _symlink_ghci_binary(ctx, ghci_bin: Artifact):
-    # TODO(T155760998): set ghci_ghc_path as a dependency instead of string
+def _symlink_ghci_binary(ctx, ghci_bin: Artifact, haskell_toolchain: HaskellToolchainInfo):
     ghci_bin_dep = ctx.attrs.ghci_bin_dep
-    if not ghci_bin_dep:
-        fail("GHC binary path not specified")
+    if ghci_bin_dep:
+        src = ghci_bin_dep[DefaultInfo].default_outputs[0]
+    elif haskell_toolchain.ghci_ghc_path:
+        src = _get_default_output(haskell_toolchain.ghci_ghc_path)
+    else:
+        fail("GHC binary path not specified: set ghci_bin_dep on the target or ghci_ghc_path in the toolchain")
 
-    # NOTE: In the buck1 version we'd symlink the binary only if a custom one
-    # was provided, but in buck2 we're always setting `ghci_bin_dep` (i.e.
-    # to default one if custom wasn't provided).
-    src = ghci_bin_dep[DefaultInfo].default_outputs[0]
     ctx.actions.symlink_file(ghci_bin.as_output(), src)
 
 def _first_order_haskell_deps(
@@ -644,7 +673,7 @@ def _ghci_resolve_toolchain_pkgs_impl(
         toolchain_package_db_tset.project_as_args("toolchain_package_db"),
         format = "-package-db {}",
     )
-    actions.write(output, pkg_db_args)
+    actions.write(output, pkg_db_args, with_inputs = True)
     return []
 
 _ghci_resolve_toolchain_pkgs = dynamic_actions(
@@ -652,6 +681,104 @@ _ghci_resolve_toolchain_pkgs = dynamic_actions(
     attrs = {
         "pkg_deps": dynattrs.dynamic_value(),
         "output": dynattrs.output(),
+        "arg": dynattrs.value(typing.Any),
+    },
+)
+
+def _write_ghci_src_package_conf_impl(
+        actions: AnalysisActions,
+        md_file: ArtifactValue,
+        pkg_conf: OutputArtifact,
+        db: OutputArtifact,
+        arg) -> list[Provider]:
+    md = md_file.read_json()
+    modules = [m for m in md["module_graph"].keys() if not m.endswith("-boot")]
+
+    # ${pkgroot} expands to the parent of the .conf.d db dir. In the symlink
+    # tree under name.packages/<pkgname>/, mod-<suffix>/ and lib-<suffix>/ are
+    # siblings of packagedb/, so ${pkgroot} resolves correctly to that dir.
+    interface_dir = '"${pkgroot}/mod-' + arg.artifact_suffix + '"'
+    library_dir = '"${pkgroot}/lib-' + arg.artifact_suffix + '"'
+
+    dep_ids = [lib.id for lib in arg.hlis]
+
+    conf = cmd_args(
+        "name: " + arg.pkgname,
+        "version: 1.0.0",
+        "id: " + arg.pkgname,
+        "key: " + arg.pkgname,
+        "exposed: True",
+        "exposed-modules: " + ", ".join(modules),
+        "import-dirs: " + interface_dir,
+        "library-dirs: " + library_dir,
+        "hs-libraries: " + arg.libname,
+    )
+    if dep_ids:
+        conf.add("depends: " + ", ".join(dep_ids))
+
+    pkg_conf_art = actions.write(pkg_conf, conf, with_inputs = True)
+
+    register_cmd = cmd_args(arg.registerer)
+    register_cmd.add("--ghc-pkg", arg.packager)
+    register_cmd.add("--output", db)
+    register_cmd.add("--package-conf", pkg_conf_art)
+    actions.run(
+        register_cmd,
+        category = "haskell_ghci_src_package",
+        allow_cache_upload = arg.allow_cache_upload,
+    )
+    return []
+
+_write_ghci_src_package_conf = dynamic_actions(
+    impl = _write_ghci_src_package_conf_impl,
+    attrs = {
+        "md_file": dynattrs.artifact_value(),
+        "pkg_conf": dynattrs.output(),
+        "db": dynattrs.output(),
+        "arg": dynattrs.value(typing.Any),
+    },
+)
+
+def _ghci_link_src_lib_impl(
+        actions: AnalysisActions,
+        pkg_deps: ResolvedDynamicValue,
+        lib: OutputArtifact,
+        arg) -> list[Provider]:
+    toolchain_package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
+
+    all_pkg_names = arg.toolchain_libs + arg.transitive_dep_packages
+    toolchain_db_tset = actions.tset(
+        HaskellToolchainPackageDbTSet,
+        children = [toolchain_package_db[n] for n in all_pkg_names if n in toolchain_package_db],
+    )
+
+    link_cmd = cmd_args(arg.haskell_toolchain.linker)
+    link_cmd.add(arg.haskell_toolchain.linker_flags)
+    link_cmd.add("-hide-all-packages")
+    link_cmd.add(cmd_args(arg.local_packagedb_args, prepend = "-package-db"))
+    link_cmd.add(cmd_args(
+        toolchain_db_tset.project_as_args("toolchain_package_db"),
+        prepend = "-package-db",
+    ))
+    link_cmd.add(arg.exposed_package_args)
+    link_cmd.add("-shared", "-dynamic")
+    link_cmd.add(cmd_args(arg.libfile, format = "-optl-Wl,-soname,{}"))
+    link_cmd.add("-o", lib)
+    link_cmd.add(arg.objects)
+    link_cmd.add(arg.linker_flags)
+
+    actions.run(
+        link_cmd,
+        category = "haskell_ghci_src_link",
+        allow_cache_upload = arg.allow_cache_upload,
+    )
+    return []
+
+_ghci_link_src_lib = dynamic_actions(
+    impl = _ghci_link_src_lib_impl,
+    attrs = {
+        "pkg_deps": dynattrs.dynamic_value(),
+        "lib": dynattrs.output(),
         "arg": dynattrs.value(typing.Any),
     },
 )
@@ -665,10 +792,10 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
     start_ghci_file = ctx.actions.declare_output("start.ghci")
     _write_start_ghci(ctx, start_ghci_file, enable_profiling)
 
-    ghci_bin = ctx.actions.declare_output(ctx.attrs.name + ".bin/ghci")
-    _symlink_ghci_binary(ctx, ghci_bin)
-
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
+
+    ghci_bin = ctx.actions.declare_output(ctx.attrs.name + ".bin/ghci")
+    _symlink_ghci_binary(ctx, ghci_bin, haskell_toolchain)
     preload_deps_info = _build_preload_deps_root(ctx, haskell_toolchain)
 
     ghci_script_template = haskell_toolchain.ghci_script_template
@@ -690,6 +817,7 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         ctx,
         link_style,
         enable_profiling,
+        skip_missing_link_style = True,
     )
 
     packages_info = get_packages_info(
@@ -721,6 +849,150 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
 
     for lib in packages_info.transitive_deps.reduce("toolchain_packages"):
         packages_info.exposed_package_args.add("-package", lib.name)
+
+    # Collect source file artifacts from non-Haskell deps (e.g. export_file
+    # targets that provide .hs files across package boundaries). These are
+    # added to a symlink tree and exposed to GHCi as an extra -i import path
+    # so that GHCi can find and compile them interactively.
+    dep_src_files = {}
+    for dep in attr_deps(ctx):
+        if HaskellLibraryProvider not in dep and DefaultInfo in dep:
+            for out in dep[DefaultInfo].default_outputs:
+                _, ext = paths.split_extension(out.short_path)
+                if ext in [".hs", ".lhs", ".hsc", ".chs"]:
+                    dep_src_files[out.short_path] = out
+
+    dep_srcs_root = None
+    dep_srcs_flag = None
+    if dep_src_files:
+        dep_srcs_root = ctx.actions.symlinked_dir(
+            ctx.label.name + ".dep-srcs",
+            dep_src_files,
+        )
+        dep_srcs_flag = '-i"${DIR}/' + dep_srcs_root.short_path + '"'
+
+    # Compile target's own sources and register as a pre-compiled package so
+    # that `buck2 build` produces cacheable artifacts and GHCi starts without
+    # recompiling anything.
+    src_compiled = None
+    src_pkg_db = None
+    src_pkg_lib = None
+    src_pkgname = None
+
+    if ctx.attrs.srcs:
+        validate_plugins_attrs(ctx)
+        worker = ctx.attrs._worker[WorkerInfo] if ctx.attrs._worker else None
+        compile_link_style = LinkStyle("shared")
+
+        # Mirrors haskell_library_impl's plugin-flag plumbing so that the
+        # `plugins` / `srcs_plugins` attrs apply when haskell_ghci's own srcs
+        # are pre-compiled as a package.
+        plugin_flags = compute_plugin_flags(ctx, compile_link_style)
+        plugin_tool_paths = []
+        for plugin_dep in ctx.attrs.plugins:
+            for tool in plugin_dep[GhcPluginInfo].tools:
+                plugin_tool_paths.append(tool[RunInfo])
+        for plugin_list in ctx.attrs.srcs_plugins.values():
+            for plugin_dep in plugin_list:
+                for tool in plugin_dep[GhcPluginInfo].tools:
+                    plugin_tool_paths.append(tool[RunInfo])
+
+        src_md_file = target_metadata(
+            ctx,
+            link_style = compile_link_style,
+            enable_profiling = enable_profiling,
+            enable_haddock = False,
+            main = None,
+            sources = ctx.attrs.srcs,
+            worker = worker,
+        )
+
+        (src_pkgname, src_libname) = make_haskell_names_from_label(ctx.label, False)
+
+        src_compiled = compile(
+            ctx,
+            compile_link_style,
+            incremental = ctx.attrs.incremental,
+            enable_profiling = enable_profiling,
+            enable_haddock = False,
+            md_file = src_md_file,
+            worker = worker,
+            pkgname = src_pkgname,
+            is_haskell_binary = False,
+            unit_plugin_flags = plugin_flags.unit,
+            srcs_plugin_flags = plugin_flags.srcs,
+            extra_tool_paths = plugin_tool_paths,
+        )
+
+        src_artifact_suffix = get_artifact_suffix(compile_link_style, enable_profiling)
+        compiler_suffix = (
+            "-ghc{}".format(haskell_toolchain.compiler_major_version)
+            if haskell_toolchain.compiler_major_version
+            else ""
+        )
+        src_libfile = "lib" + src_libname + compiler_suffix + ".so"
+        src_pkg_lib = ctx.actions.declare_output(
+            "lib-{}/{}".format(src_artifact_suffix, src_libfile),
+        )
+
+        dyn_objects = [o for o in src_compiled.objects if o.short_path.endswith(".dyn_o")]
+
+        toolchain_libs_for_src = [
+            dep[HaskellToolchainLibrary].name
+            for dep in attr_deps(ctx)
+            if HaskellToolchainLibrary in dep
+        ]
+        transitive_dep_packages = packages_info.transitive_deps.reduce("packages")
+
+        if haskell_toolchain.packages:
+            ctx.actions.dynamic_output_new(_ghci_link_src_lib(
+                pkg_deps = haskell_toolchain.packages.dynamic,
+                lib = src_pkg_lib.as_output(),
+                arg = struct(
+                    haskell_toolchain = haskell_toolchain,
+                    local_packagedb_args = packages_info.local_packagedb_args,
+                    exposed_package_args = packages_info.exposed_package_args,
+                    objects = dyn_objects,
+                    libfile = src_libfile,
+                    linker_flags = ctx.attrs.linker_flags,
+                    toolchain_libs = toolchain_libs_for_src,
+                    transitive_dep_packages = transitive_dep_packages,
+                    allow_cache_upload = ctx.attrs.allow_cache_upload,
+                ),
+            ))
+        else:
+            link_cmd = cmd_args(haskell_toolchain.linker)
+            link_cmd.add(haskell_toolchain.linker_flags)
+            link_cmd.add("-hide-all-packages")
+            link_cmd.add(cmd_args(packages_info.local_packagedb_args, prepend = "-package-db"))
+            link_cmd.add(packages_info.exposed_package_args)
+            link_cmd.add("-shared", "-dynamic")
+            link_cmd.add(cmd_args(src_libfile, format = "-optl-Wl,-soname,{}"))
+            link_cmd.add("-o", src_pkg_lib.as_output())
+            link_cmd.add(dyn_objects)
+            ctx.actions.run(link_cmd, category = "haskell_ghci_src_link_simple")
+
+        src_pkg_conf = ctx.actions.declare_output(
+            "ghci-pkg-{}.conf".format(src_artifact_suffix),
+        )
+        src_pkg_db = ctx.actions.declare_output(
+            "ghci-pkg-{}.conf.d".format(src_artifact_suffix),
+            dir = True,
+        )
+        ctx.actions.dynamic_output_new(_write_ghci_src_package_conf(
+            md_file = src_md_file,
+            pkg_conf = src_pkg_conf.as_output(),
+            db = src_pkg_db.as_output(),
+            arg = struct(
+                pkgname = src_pkgname,
+                libname = src_libname + compiler_suffix,
+                artifact_suffix = src_artifact_suffix,
+                hlis = haskell_direct_deps_lib_infos,
+                registerer = ctx.attrs._ghc_pkg_registerer[RunInfo],
+                packager = haskell_toolchain.packager,
+                allow_cache_upload = ctx.attrs.allow_cache_upload,
+            ),
+        ))
 
     # Create package db symlinks
     package_symlinks = []
@@ -787,6 +1059,29 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
             ),
         )
 
+    # Add the target's own pre-compiled package to the symlink tree so GHCi
+    # can load it via -package without recompiling from source.
+    # NOTE: do NOT mutate packages_info.exposed_package_args here — the link
+    # action captured that cmd_args and must not see the current package in it
+    # (you can't link against a package you're in the process of creating).
+    # Instead build a separate cmd_args for GHCi script rendering.
+    ghci_exposed_package_args = cmd_args(packages_info.exposed_package_args)
+    if src_pkg_db and src_pkgname and src_compiled:
+        src_artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
+        src_symlinks_root = paths.join(package_symlinks_root, src_pkgname)
+        src_symlinks = {"packagedb": src_pkg_db}
+
+        for iface in src_compiled.interfaces:
+            src_symlinks["mod-{}/{}".format(src_artifact_suffix, iface.short_path)] = iface
+
+        if src_pkg_lib:
+            src_symlinks[src_pkg_lib.short_path] = src_pkg_lib
+
+        src_symlinked = ctx.actions.symlinked_dir(src_symlinks_root, src_symlinks)
+        package_symlinks.append(src_symlinked)
+        packagedb_args.add(paths.join(src_symlinks_root, "packagedb"))
+        ghci_exposed_package_args.add("-package", src_pkgname)
+
     script_templates = []
     for script_template in ctx.attrs.extra_script_templates:
         final_script = _replace_macros_in_script_template(
@@ -794,7 +1089,7 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
             script_template = script_template,
             haskell_toolchain = haskell_toolchain,
             ghci_bin = ghci_bin,
-            exposed_package_args = packages_info.exposed_package_args,
+            exposed_package_args = ghci_exposed_package_args,
             packagedb_args = packagedb_args,
             prebuilt_packagedb_args = prebuilt_packagedb_args,
         )
@@ -814,6 +1109,11 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         haskell_toolchain,
         ghci_script_template,
         enable_profiling,
+        # When sources are pre-compiled as a package, don't pass them as raw
+        # source files — modules are already loaded via -package.
+        srcs_override = "" if src_compiled else None,
+        ghci_exposed_package_args = ghci_exposed_package_args,
+        dep_srcs_flag = dep_srcs_flag,
     )
 
     outputs = [
@@ -828,6 +1128,8 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
     ]
     outputs.extend(package_symlinks)
     outputs.extend(script_templates)
+    if dep_srcs_root != None:
+        outputs.append(dep_srcs_root)
 
     # As default output (e.g. used in `$(location )` buck macros), the rule
     # should output a directory containing symlinks to all scripts and resources
@@ -837,11 +1139,57 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         "__{}__".format(ctx.label.name),
         output_artifacts,
     )
-    ghci_bin_dep = ctx.attrs.ghci_bin_dep.get(RunInfo)
+    ghci_bin_dep = ctx.attrs.ghci_bin_dep.get(RunInfo) if ctx.attrs.ghci_bin_dep else None
     hidden_dep = [ghci_bin_dep] if ghci_bin_dep else []
     run = cmd_args(final_ghci_script, hidden=hidden_dep + outputs)
+
+    # When sources are pre-compiled, expose Haskell providers so _ghci targets
+    # can be used as deps by other _ghci targets, forming a parallel dep tree.
+    haskell_providers = []
+    if src_compiled and src_pkg_db and src_pkgname and src_pkg_lib:
+        src_hlib_info = HaskellLibraryInfo(
+            name = src_pkgname,
+            db = src_pkg_db,
+            empty_db = None,
+            deps_db = None,
+            conf = HaskellPackageConfInfo(final_conf = None, empty_conf = None, deps_conf = None),
+            interfaces = {False: src_compiled.interfaces},
+            objects = {False: src_compiled.objects},
+            hie_files = {False: []},
+            stub_dirs = [],
+            id = src_pkgname,
+            dynamic = None,
+            libs = [src_pkg_lib],
+            version = "1.0.0",
+            is_prebuilt = False,
+            profiling_enabled = False,
+            dependencies = [],
+            toolchain_dependencies = [],
+            md_file = None,
+        )
+        hlink_tset = ctx.actions.tset(
+            HaskellLibraryInfoTSet,
+            value = src_hlib_info,
+            children = [
+                li.info[link_style]
+                for li in attr_deps_haskell_link_infos(ctx)
+                if link_style in li.info
+            ],
+        )
+        haskell_providers = [
+            HaskellLibraryProvider(
+                lib = {link_style: src_hlib_info},
+                prof_lib = {},
+            ),
+            HaskellLinkInfo(
+                info = {link_style: hlink_tset},
+                prof_info = {link_style: ctx.actions.tset(HaskellLibraryInfoTSet)},
+                extra = {},
+            ),
+        ]
 
     return [
         DefaultInfo(default_outputs = [root_output_dir]),
         RunInfo(args = run),
-    ]
+    ] + haskell_providers
+

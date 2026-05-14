@@ -373,13 +373,25 @@ haskell_ghci = rule(
             "platform_preload_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),
             "preload_deps": attrs.set(attrs.dep(), sorted = True, default = []),
             "srcs": attrs.named_set(attrs.source(), sorted = True, default = []),
+            "srcs_deps": attrs.dict(attrs.source(), attrs.list(attrs.source()), default = {}),
+            "allow_worker": attrs.bool(default = True),
 
             # extra needed (from rules_impl.bzl)
             "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
             "_cxx_toolchain": toolchains_common.cxx(),
             "_haskell_toolchain": haskell_toolchain(),
         } |
-        _plugins_arg()
+        haskell_common.srcs_envs_arg() |
+        haskell_common.module_prefix_arg() |
+        haskell_common.strip_prefix_arg() |
+        haskell_common.ghc_rts_flags_arg() |
+        haskell_common.external_tools_arg() |
+        haskell_common.incremental_arg() |
+        haskell_common.allow_cache_upload_arg() |
+        haskell_common.validate_srcs_arg() |
+        haskell_common.extra_libraries_arg() |
+        haskell_common.plugins_arg() |
+        haskell_common.scripts_arg()
     ),
 )
 
