@@ -1555,6 +1555,15 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     worker = ctx.attrs._worker[WorkerInfo] if ctx.attrs._worker else None
 
+    main = ctx.attrs.main
+    src_main = ctx.attrs.src_main
+    # if only one file in srcs, it's automatically assigned to src_main.
+    if src_main == None and not main:
+        if len(sources) > 1:
+            fail("More than one Haskell source files in srcs, but src_main or main is not specified.")
+        if len(sources) == 1:
+            src_main = sources[0]
+
     md_file = target_metadata(
         ctx,
         link_style = link_style,
@@ -1577,7 +1586,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         worker = worker,
         pkgname = pkgname,
         is_haskell_binary = True,
-        src_main = ctx.attrs.src_main,
+        src_main = src_main,
     )
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
