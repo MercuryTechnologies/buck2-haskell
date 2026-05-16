@@ -1154,6 +1154,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
                 enable_profiling = enable_profiling,
                 enable_haddock = not enable_profiling and not non_profiling_hlib,
                 main = None,
+                is_binary = False,
                 sources = sources,
                 worker = worker,
             )
@@ -1612,6 +1613,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         enable_profiling = enable_profiling,
         enable_haddock = False,
         main = getattr(ctx.attrs, "main", None),
+        is_binary = True,
         sources = sources,
         worker = worker,
     )

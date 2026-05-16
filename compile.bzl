@@ -402,6 +402,7 @@ MetadataUnitParams = record(
     toolchain_libs = field(list[str]),
     deps = field(list[Dependency]),
     use_worker = field(bool),
+    is_binary = field(bool),
 )
 
 def metadata_unit_args(
@@ -593,6 +594,8 @@ def _dynamic_target_metadata_impl(
         bp_args.add("--fields", "exposed_modules,module_graph,package_deps,project_deps,toolchain_deps,th_modules,cache")
         bp_args.add(dep_units)
         bp_args.add("--unit", unit.name)
+        if munit.is_binary:
+            bp_args.add("--unit-is-binary")
         bp_args.add(cmd_args(ghc_args_file, prepend = "--ghc-args", hidden = [build_plan.as_output(), makefile.as_output()]))
 
         actions.run(
@@ -646,6 +649,7 @@ def target_metadata(
         enable_profiling: bool,
         enable_haddock: bool,
         main: None | str,
+        is_binary: bool,
         sources: list[Artifact],
         worker: WorkerInfo | None) -> Artifact:
     prof_suffix = "-prof" if enable_profiling else ""
@@ -701,6 +705,7 @@ def target_metadata(
                 toolchain_libs = toolchain_libs,
                 deps = attr_deps(ctx),
                 use_worker = ctx.attrs.allow_worker and haskell_toolchain.use_worker,
+                is_binary = is_binary,
             ),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
