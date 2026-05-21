@@ -1581,7 +1581,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     main = ctx.attrs.main
     src_main = ctx.attrs.src_main
     # if only one file in srcs, it's automatically assigned to src_main.
-    if src_main == None and not main:
+    if src_main == None:
         if len(sources) > 1:
             fail("More than one Haskell source files in srcs, but src_main or main is not specified.")
         if len(sources) == 1:

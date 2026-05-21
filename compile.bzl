@@ -51,6 +51,7 @@ load(
     "attr_deps_haskell_link_group_infos",
     "attr_deps_haskell_link_infos",
     "attr_deps_haskell_toolchain_libraries",
+    "decompose_main",
     "get_artifact_suffix",
     "get_source_prefixes",
     "is_haskell_boot",
@@ -220,8 +221,18 @@ def _modules_by_name(
         src_main: Artifact | None) -> dict[str, _Module]:
     modules = {}
     predefined_name_map = {}
+
     if is_haskell_binary and src_main:
-        predefined_name_map[src_main.short_path] = "Main"
+        if ctx.attrs.main:
+            (main_module, main_function) = decompose_main(ctx.attrs.main)
+        else:
+            main_module = "Main"
+            main_function = None
+        predefined_name_map[src_main.short_path] = main_module
+        main_path = main_module.replace(".", "/")
+    else:
+        main_module = None
+        main_path = None
 
     osuf, hisuf = output_extensions(link_style, enable_profiling)
 
@@ -233,10 +244,10 @@ def _modules_by_name(
             continue
 
         module_name = src_to_module_name(src.short_path, predefined_name_map) + bootsuf
-        if module_name == "Main":
-            interface_path = "Main." + hisuf
-            object_path = "Main." + osuf
-            hie_path = "Main.hie"
+        if module_name == main_module:
+            interface_path = main_path + "." + hisuf
+            object_path = main_path + "." + osuf
+            hie_path = main_path + ".hie"
         else:
             if module_prefix:
                 short_path_stripped = module_prefix.replace(".", "/") + "/" + src.short_path

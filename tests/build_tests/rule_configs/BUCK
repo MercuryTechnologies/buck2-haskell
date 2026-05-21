@@ -58,6 +58,17 @@ haskell_binary(
     ],
 )
 
+# Test: haskell_binary with custom main module name.
+haskell_binary(
+    name = "bin_non_standard",
+    srcs = ["NonStandardMain.hs"],
+    main = "Custom.MyMain",
+    link_style = "shared",
+    deps = [
+        "//tests:base",
+    ],
+)
+
 # sh_tests that run each binary to verify correct linking and runtime behavior.
 sh_test(
     name = "test_bin_static",
@@ -67,6 +78,11 @@ sh_test(
 sh_test(
     name = "test_bin_shared",
     test = ":bin_shared",
+)
+
+sh_test(
+    name = "test_bin_non_standard",
+    test = ":bin_non_standard",
 )
 
 # =============================================================================
