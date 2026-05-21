@@ -256,3 +256,14 @@ def make_haskell_names_from_label(
         pkgname = libname0.replace("_", "-").replace(".", "-")
         libname = "HS" + pkgname
     return (pkgname, libname)
+
+# the main attr is decomposed into (module name, function name)
+def decompose_main(main: str) -> (str, str | None):
+    head, _dot, tail = main.rpartition(".")
+    if tail[0].isupper():
+        module_name = main
+        function_name = None
+    else:
+        module_name = head
+        function_name = tail
+    return (module_name, function_name)
