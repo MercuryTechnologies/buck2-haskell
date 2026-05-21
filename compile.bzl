@@ -281,9 +281,9 @@ def _modules_by_name(
 
         if link_style in [LinkStyle("static"), LinkStyle("static_pic")] and not is_worker_execute:
             dyn_osuf, dyn_hisuf = output_extensions(LinkStyle("shared"), enable_profiling)
-            if module_name == "Main":
-                extra_interface_path = "Main." + dyn_hisuf
-                extra_object_path = "Main." + dyn_osuf
+            if module_name == main_module:
+                extra_interface_path = main_path + "." + dyn_hisuf
+                extra_object_path = main_path + "." + dyn_osuf
             else:
                 extra_interface_path = paths.replace_extension(short_path_stripped, "." + dyn_hisuf + bootsuf)
                 extra_object_path = paths.replace_extension(short_path_stripped, "." + dyn_osuf + bootsuf)
