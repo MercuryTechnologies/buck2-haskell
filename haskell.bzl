@@ -136,6 +136,7 @@ load(
     "get_source_prefixes",
     "is_haskell_boot",
     "is_haskell_src",
+    "compute_source_module_paths",
     "make_haskell_names_from_label",
     "output_extensions",
     "src_to_module_name",
@@ -1276,33 +1277,12 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         deps = attr_deps(ctx),
     )))
 
-    # For list-style srcs, short_path is relative to the package directory.
-    # Prepend the package path to get cell-root-relative paths, then strip.
-    # Two kinds of packages need different prefix handling:
-    #   - Sub-packages at e.g. //src/App/Foo with glob(["*.hs"]):
-    #       short_path = "Foo.hs", cell-root = "src/App/Foo/Foo.hs"
-    #       strip "src/" -> "App/Foo/Foo.hs"  (bare cell-root prefix)
-    #   - Packages at e.g. //local-packages/pkg with glob(["src/**/*.hs"]):
-    #       short_path = "src/A/Foo.hs", cell-root = "local-packages/pkg/src/A/Foo.hs"
-    #       strip "local-packages/pkg/src/" -> "A/Foo.hs"  (package-relative prefix)
-    # So we try package-relative prefixes first, then bare strip_prefix entries.
-    _pkg = ctx.label.package
-    if type(sources) == type({}):
-        _path_pairs = [(k, v) for (k, v) in sources.items() if is_haskell_src(k)]
-    else:
-        _path_pairs = [
-            (paths.join(_pkg, src.short_path) if _pkg else src.short_path, src)
-            for src in sources
-            if is_haskell_src(src.short_path)
-        ]
-    _strip_prefixes = (
-        [paths.join(_pkg, p) for p in ctx.attrs.strip_prefix] +
-        list(ctx.attrs.strip_prefix)
+    src_pairs = compute_source_module_paths(
+        package = ctx.label.package,
+        module_prefix = getattr(ctx.attrs, "module_prefix", None),
+        strip_prefix = ctx.attrs.strip_prefix,
+        sources = sources,
     )
-    src_pairs = [
-        (strip_source_prefix(path, _strip_prefixes), artifact)
-        for (path, artifact) in _path_pairs
-    ]
     src_children = [
         dep[HaskellSourceInfo].srcs
         for dep in attr_deps(ctx)

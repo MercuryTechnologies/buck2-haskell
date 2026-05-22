@@ -94,6 +94,81 @@ def strip_source_prefix(path: str, strip_prefix: list[str]) -> str:
             return path[len(prefix) + 1:]
     return path
 
+def _full_strip_prefixes(package: str, strip_prefix: list[str]) -> list[str]:
+    """Build the strip-prefix list applied to cell-root paths.
+
+    Package-relative entries come first so they take precedence over bare
+    ones — matters when both could match (e.g. a package at
+    //local-packages/foo with bare strip "src" and entries "src" already
+    appearing as the first path component).
+    """
+    return (
+        [paths.join(package, p) for p in strip_prefix] +
+        list(strip_prefix)
+    )
+
+def compute_source_module_paths(
+        package: str,
+        module_prefix: [str, None],
+        strip_prefix: list[str],
+        sources) -> list[(str, Artifact)]:
+    """Compute the module-tree-relative path for each Haskell source file.
+
+    Used by `HaskellSourceInfo` construction to symlink sources at the
+    right location for GHCi's `-i` import search to find them by
+    qualified module name.
+
+    Three cases:
+
+      1. `sources` is a dict {path: artifact}. The key IS the input path
+         (typically cell-root); strip configured prefixes from it. We do
+         not consult `module_prefix` here — the dict form is used when
+         the caller already knows exactly where each file should live.
+
+      2. `sources` is a list of artifacts AND `module_prefix` is set. The
+         library's modules are GHC-known as `<module_prefix>.<short_path_module>`,
+         so the in-tree path must mirror that:
+         `<module_prefix_as_dir>/<short_path_with_strip_prefix_stripped>`.
+         This handles sub-packages like
+         //local-packages/foo/src/Acme/Foo/Bar that live at the module
+         location (their package path IS the module path).
+
+      3. `sources` is a list and `module_prefix` is empty. Fall back to
+         the strip-prefix logic: join with the package path to get a
+         cell-root path, then strip a matching prefix. This covers both
+         the simple sub-packages at //src/App/Foo (bare "src" prefix) and
+         top-level local-packages doing `glob(["src/**/*.hs"])` (package-
+         relative "<pkg>/src" prefix).
+    """
+    if type(sources) == type({}):
+        full_strip = _full_strip_prefixes(package, strip_prefix)
+        return [
+            (strip_source_prefix(path, full_strip), artifact)
+            for (path, artifact) in sources.items()
+            if is_haskell_src(path)
+        ]
+
+    if module_prefix:
+        module_prefix_dir = module_prefix.replace(".", "/")
+        return [
+            (paths.join(module_prefix_dir, strip_source_prefix(src.short_path, strip_prefix)), src)
+            for src in sources
+            if is_haskell_src(src.short_path)
+        ]
+
+    full_strip = _full_strip_prefixes(package, strip_prefix)
+    return [
+        (
+            strip_source_prefix(
+                paths.join(package, src.short_path) if package else src.short_path,
+                full_strip,
+            ),
+            src,
+        )
+        for src in sources
+        if is_haskell_src(src.short_path)
+    ]
+
 def attr_deps(ctx: AnalysisContext) -> list[Dependency]:
     return ctx.attrs.deps + (getattr(ctx.attrs, "deps_query", []) or [])
 
