@@ -942,7 +942,12 @@ def _build_haskell_lib(
         objs = [o for o in compiled.objects if o.extension != ".dyn_o"]
 
         if objs:
-            archive = make_archive(ctx, lib_short_path, objs, hidden = extra_libs)
+            hidden = compiled.interfaces + \
+                compiled.extra_interfaces + \
+                compiled.extra_interfaces + \
+                compiled.extra_objects + \
+                extra_libs
+            archive = make_archive(ctx, lib_short_path, objs, hidden = hidden)
             lib = archive.artifact
             libs = [lib] + archive.external_objects
             linkables = [ArchiveLinkable(
