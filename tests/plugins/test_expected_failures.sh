@@ -20,7 +20,7 @@ expect_failure() {
     label=$(echo "$target" | sed 's|.*//||')
 
     local output
-    if output=$(buck --isolation-dir test_expected_failures build "$target" 2>&1); then
+    if output=$(buck --isolation-dir test_expected_failures build --no-remote-cache "$target" 2>&1); then
         echo "FAIL: $label — expected build failure but build succeeded"
         FAIL=$((FAIL + 1))
         return
