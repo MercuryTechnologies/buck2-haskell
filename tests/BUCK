@@ -1,5 +1,11 @@
 load("@buck2-haskell//:defs.bzl", "haskell_toolchain_library")
+load("@buck2-haskell//:util_test.bzl", "util_test")
 load("@toolchains//ghci.bzl", "ghci")
+
+# Starlark-level unit tests for util.bzl. Runs at parse time of this BUCK
+# file, so any `buck` command targeting //tests/... exercises the assertions
+# and fails fast on a regression.
+util_test()
 
 # We aren't going to ship a toolchain in this repo, so delegate to the user's
 # toolchain.
