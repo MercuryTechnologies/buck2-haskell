@@ -1,0 +1,49 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_ghci",
+    "haskell_library",
+)
+
+# Exercises `compute_source_module_paths` case 3 (list srcs, no module_prefix)
+# in the strip_prefix-with-glob shape: srcs whose short_paths start with the
+# stripped directory (e.g. `src/Stripped/Lib.hs`). Verifies the package-
+# relative entry of the full strip-prefix list (`<pkg>/src`) wins over the
+# bare one and reduces the in-tree path to `Stripped/Lib.hs`.
+haskell_library(
+    name = "lib",
+    srcs = glob(["src/**/*.hs"]),
+    strip_prefix = ["src"],
+    deps = ["//tests:base"],
+    visibility = ["//tests/..."],
+)
+
+haskell_binary(
+    name = "bin",
+    srcs = ["Main.hs"],
+    link_style = "static",
+    deps = [
+        ":lib",
+        "//tests:base",
+    ],
+)
+
+sh_test(
+    name = "test_bin",
+    test = ":bin",
+)
+
+haskell_ghci(
+    name = "ghci",
+    ghci_bin_dep = "//tests:ghci_bin",
+    deps = [
+        ":lib",
+        "//tests:base",
+    ],
+)
+
+sh_test(
+    name = "test_ghci",
+    test = "test_ghci.sh",
+    labels = ["buck2_run_from_project_root"],
+)
