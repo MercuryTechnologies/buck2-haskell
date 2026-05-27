@@ -1,0 +1,53 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_ghci",
+    "haskell_library",
+)
+
+# Regression coverage for 8f47eb98: a sub-package whose BUCK lives at a deep
+# path (mirroring //local-packages/foo/src/Acme/Foo/Bar) where
+# `module_prefix` — not `strip_prefix` — drives the in-tree source layout.
+# Before that fix, HaskellSourceInfo placed sources at their package path
+# (`tests/build_tests/module_prefix_deep/Acme/Foo/Bar/Lib.hs`), so GHCi
+# could not resolve `import Acme.Foo.Bar.Lib` and the ghci target broke.
+haskell_library(
+    name = "lib",
+    srcs = [
+        "Lib.hs",
+        "Other.hs",
+    ],
+    module_prefix = "Acme.Foo.Bar",
+    deps = ["//tests:base"],
+    visibility = ["//tests/..."],
+)
+
+haskell_binary(
+    name = "bin",
+    srcs = ["Main.hs"],
+    link_style = "static",
+    deps = [
+        ":lib",
+        "//tests:base",
+    ],
+)
+
+sh_test(
+    name = "test_bin",
+    test = ":bin",
+)
+
+haskell_ghci(
+    name = "ghci",
+    ghci_bin_dep = "//tests:ghci_bin",
+    deps = [
+        ":lib",
+        "//tests:base",
+    ],
+)
+
+sh_test(
+    name = "test_ghci",
+    test = "test_ghci.sh",
+    labels = ["buck2_run_from_project_root"],
+)
