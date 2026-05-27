@@ -1,0 +1,52 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_ghci",
+    "haskell_library",
+)
+
+# Exercises `compute_source_module_paths` case 1 (dict-form srcs). The dict
+# key is taken as the in-tree path verbatim (after strip_prefix), independent
+# of where the file lives in the package — the list-form fallback would
+# instead produce `tests/build_tests/dict_srcs/Dict/Lib.hs` and GHCi could
+# not resolve `Dict.Lib`. Dict-form srcs are documented as deprecated but
+# must keep working until removed.
+haskell_library(
+    name = "lib",
+    srcs = {
+        "Dict/Inner.hs": "Dict/Inner.hs",
+        "Dict/Lib.hs": "Dict/Lib.hs",
+    },
+    deps = ["//tests:base"],
+    visibility = ["//tests/..."],
+)
+
+haskell_binary(
+    name = "bin",
+    srcs = ["Main.hs"],
+    link_style = "static",
+    deps = [
+        ":lib",
+        "//tests:base",
+    ],
+)
+
+sh_test(
+    name = "test_bin",
+    test = ":bin",
+)
+
+haskell_ghci(
+    name = "ghci",
+    ghci_bin_dep = "//tests:ghci_bin",
+    deps = [
+        ":lib",
+        "//tests:base",
+    ],
+)
+
+sh_test(
+    name = "test_ghci",
+    test = "test_ghci.sh",
+    labels = ["buck2_run_from_project_root"],
+)
