@@ -1476,6 +1476,7 @@ def _dynamic_link_binary_impl(
                 packagedb_args.add(cmd_args(d.empty_db))
             else:
                 packagedb_args.add(cmd_args(d.db))
+                link_cmd_hidden.append(d.libs)
         for item in arg.haskell_direct_deps_lib_infos:
             if not item.id in all_link_group_ids:
                 package_args.add(item.name)
