@@ -51,6 +51,7 @@ load(
     "attr_deps_haskell_link_group_infos",
     "attr_deps_haskell_link_infos",
     "attr_deps_haskell_toolchain_libraries",
+    "check_is_worker_execute",
     "decompose_main",
     "get_artifact_suffix",
     "get_source_prefixes",
@@ -419,7 +420,6 @@ MetadataUnitParams = record(
     unit = field(UnitParams),
     toolchain_libs = field(list[str]),
     deps = field(list[Dependency]),
-    use_worker = field(bool),
     is_binary = field(bool),
 )
 
@@ -441,7 +441,7 @@ def metadata_unit_args(
     package_flag = _package_flag(arg.unit.haskell_toolchain)
     ghc_args.add(cmd_args(arg.toolchain_libs, prepend = package_flag))
 
-    if not arg.use_worker:
+    if not arg.unit.is_worker_execute:
         ghc_args.add(cmd_args(packages_info.local_packagedb_args, prepend="-package-db"))
 
     ghc_args.add(cmd_args(packages_info.exposed_package_args, hidden = packages_info.local_packagedb_args))
@@ -546,7 +546,7 @@ def _dynamic_target_metadata_impl(
         use_empty_lib = True,
         for_deps = True,
         pkg_deps = pkg_deps,
-        use_worker = arg.unit.use_worker,
+        is_worker_execute = is_worker_execute,
     )
     package_flag = _package_flag(haskell_toolchain)
 
@@ -680,7 +680,7 @@ def target_metadata(
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
     allow_worker = ctx.attrs.allow_worker
-    is_worker_execute = allow_worker and haskell_toolchain.use_worker
+    is_worker_execute = check_is_worker_execute(worker, allow_worker, haskell_toolchain.use_worker)
 
     toolchain_libs = [dep.name for dep in attr_deps_haskell_toolchain_libraries(ctx)]
 
@@ -717,7 +717,6 @@ def target_metadata(
                 ),
                 toolchain_libs = toolchain_libs,
                 deps = attr_deps(ctx),
-                use_worker = ctx.attrs.allow_worker and haskell_toolchain.use_worker,
                 is_binary = is_binary,
             ),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
@@ -776,8 +775,8 @@ def get_packages_info(
         enable_profiling: bool,
         use_empty_lib: bool,
         pkg_deps: ResolvedDynamicValue | None,
-        for_deps: bool = False,
-        use_worker: bool = False) -> PackagesInfo:
+        for_deps: bool,
+        is_worker_execute: bool) -> PackagesInfo:
     # Collect library dependencies. Note that these don't need to be in a
     # particular order.
     libs = actions.tset(
@@ -836,7 +835,7 @@ def get_packages_info(
 
     packagedb_args.add(toolchain_package_db_tset.project_as_args("toolchain_package_db"))
 
-    local_package_flag = "-package-id" if use_worker else "-package"
+    local_package_flag = "-package-id" if is_worker_execute else "-package"
 
     # Expose only the packages we depend on directly
     for lib in haskell_direct_deps_lib_infos:
@@ -879,6 +878,7 @@ def make_package_env(
         link_style: LinkStyle,
         enable_profiling: bool,
         allow_worker: bool,
+        worker: WorkerInfo | None,
         packagedb_args: cmd_args) -> Artifact:
     # TODO[AH] Avoid duplicates and share identical env files.
     #   The set of package-dbs can be known at the package level, not just the
@@ -892,7 +892,7 @@ def make_package_env(
     ]))
     package_env = cmd_args(delimiter = "\n")
 
-    is_worker_execute = allow_worker and haskell_toolchain.use_worker
+    is_worker_execute = check_is_worker_execute(worker, allow_worker, haskell_toolchain.use_worker)
     if not is_worker_execute:
         package_env.add(cmd_args(
             packagedb_args,
@@ -916,10 +916,10 @@ def _common_compile_wrapper_args(
         ghc_wrapper: RunInfo,
         haskell_toolchain: HaskellToolchainInfo,
         pkgname: str,
-        use_worker: bool) -> cmd_args:
+        is_worker_execute: bool) -> cmd_args:
     args = cmd_args()
 
-    if use_worker:
+    if is_worker_execute:
         add_worker_args(haskell_toolchain, args, pkgname)
     else:
         args.add(ghc_wrapper)
@@ -1120,6 +1120,7 @@ def _common_compile_module_args(
             link_style = arg.link_style,
             enable_profiling = arg.enable_profiling,
             allow_worker = arg.allow_worker,
+            worker = arg.worker,
             packagedb_args = packagedb_args,
         )
         package_env_args = cmd_args(
@@ -1321,7 +1322,7 @@ def _compile_module(
         allow_cache_upload: bool,
         module_plugin_flags: cmd_args | None = None,
         module_plugin_tool_paths: typing.Any = None) -> CompiledModuleTSet:
-    is_worker_execute = allow_worker and haskell_toolchain.use_worker
+    is_worker_execute = check_is_worker_execute(worker, allow_worker, haskell_toolchain.use_worker)
 
     abi_tag = actions.artifact_tag()
     packagedb_tag = actions.artifact_tag()
@@ -1534,7 +1535,7 @@ def _compile_incr(
         graph_set: dict[str, ModGraphTSet],
         direct_deps_by_name: dict[str, _DirectDep],
         outputs: dict[Artifact, OutputArtifact]) -> None:
-    is_worker_execute = arg.allow_worker and arg.haskell_toolchain.use_worker
+    is_worker_execute = check_is_worker_execute(arg.worker, arg.allow_worker, arg.haskell_toolchain.use_worker)
 
     for module_name in post_order_traversal(graph):
         module = _get_module_from_map(mapped_modules, module_name)
@@ -1650,6 +1651,7 @@ def compile_args_for_non_incr(
         use_empty_lib = False,
         for_deps = False,
         pkg_deps = None,
+        is_worker_execute = is_worker_execute,
     )
 
     args.add(packages_info.exposed_package_args)
@@ -1931,7 +1933,7 @@ def compile(
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
-    is_worker_execute = ctx.attrs.allow_worker and haskell_toolchain.use_worker
+    is_worker_execute = check_is_worker_execute(worker, ctx.attrs.allow_worker, haskell_toolchain.use_worker)
 
     modules = _modules_by_name(
         ctx,
@@ -1992,7 +1994,7 @@ def compile(
         ),
     )
 
-    is_worker_execute = ctx.attrs.allow_worker and haskell_toolchain.use_worker
+    is_worker_execute = check_is_worker_execute(worker, ctx.attrs.allow_worker, haskell_toolchain.use_worker)
 
     dyn_module_tsets = ctx.actions.dynamic_output_new(_dynamic_do_compile(
         incremental = incremental,

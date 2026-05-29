@@ -830,6 +830,8 @@ _ghci_link_src_lib = dynamic_actions(
 
 def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
     enable_profiling = ctx.attrs.enable_profiling
+    # Worker-compatibility is not checked yet.
+    is_worker_execute = False
 
     # Validate plugin attrs; srcs_plugins is not supported in GHCi.
     srcs_plugins = getattr(ctx.attrs, "srcs_plugins", {})
@@ -880,7 +882,9 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         specify_pkg_version = True,
         enable_profiling = enable_profiling,
         use_empty_lib = False,
+        for_deps = False,
         pkg_deps = None,
+        is_worker_execute = is_worker_execute,
     )
 
     link_group_libs = attr_deps_haskell_link_group_infos(ctx, link_style)

@@ -342,3 +342,14 @@ def decompose_main(main: str) -> (str, str | None):
         module_name = head
         function_name = tail
     return (module_name, function_name)
+
+# check worker consistency
+def check_is_worker_execute(
+        worker: WorkerInfo | None,  # is worker instance instantiated?
+        allow_worker: bool,  # is this target allowing worker build?
+        use_worker: bool,  # is toolchain-level worker enabled?
+    ) -> bool:
+    is_worker_execute = allow_worker and use_worker
+    if is_worker_execute and worker == None:
+        fail("Haskell toolchain use_worker and the target allow_worker are set to True, but worker instance is not ready")
+    return is_worker_execute

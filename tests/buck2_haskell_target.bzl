@@ -26,6 +26,7 @@ def buck2_haskell_test(
         compiler_flags = default_ghc_flags + extra_compiler_flags,
         strip_prefix = ["tests"],
         module_prefix = module_prefix,
+        allow_worker = False,
         **kwargs
     )
 
@@ -44,5 +45,6 @@ def buck2_haskell_library(
         compiler_flags = default_ghc_flags + extra_compiler_flags,
         strip_prefix = ["tests"],
         module_prefix = module_prefix,
+        allow_worker = False,
         **kwargs
     )

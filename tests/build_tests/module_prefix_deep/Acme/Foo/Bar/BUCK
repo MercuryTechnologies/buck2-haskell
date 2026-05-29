@@ -20,6 +20,7 @@ haskell_library(
     module_prefix = "Acme.Foo.Bar",
     deps = ["//tests:base"],
     visibility = ["//tests/..."],
+    allow_worker = False,
 )
 
 haskell_binary(
@@ -30,6 +31,7 @@ haskell_binary(
         ":lib",
         "//tests:base",
     ],
+    allow_worker = False,
 )
 
 sh_test(
