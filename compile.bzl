@@ -55,6 +55,10 @@ load(
     "augment_toolchain_package_db",
 )
 load(
+    ":ghc_plugin.bzl",
+    "compute_plugin_flags",
+)
+load(
     ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_lib_infos",
@@ -684,6 +688,12 @@ def target_metadata(
     #
     # (module X.Y.Z must be defined in a file at X/Y/Z.hs)
 
+    # Plugin flags are passed to the worker's buildplan step so that DynFlags
+    # stored in the HUG include plugin info for the compile step. In non-worker
+    # mode the metadata step runs `ghc -M` which must NOT receive -fplugin flags
+    # (GHC would attempt to load the plugin during makedepend, which fails).
+    worker_plugin_flags = compute_plugin_flags(ctx, link_style).unit if is_worker_execute else None
+
     ctx.actions.dynamic_output_new(_dynamic_target_metadata(
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
         output = md_file.as_output(),
@@ -700,6 +710,7 @@ def target_metadata(
                     haskell_toolchain = haskell_toolchain,
                     compiler_flags = ctx.attrs.compiler_flags,
                     is_worker_execute = is_worker_execute,
+                    plugin_flags = worker_plugin_flags,
                 ),
                 toolchain_libs = toolchain_libs,
                 deps = attr_deps(ctx),
@@ -1449,6 +1460,8 @@ def _compile_module(
 
     compile_cmd_args = cmd_args()
 
+    compile_cmd_args.add(common_args.oneshot_wrapper_args)
+
     # For the make worker, options related to local package dependencies need to be omitted entirely, since it uses the
     # unit env instead of package DBs to load them.
     if is_worker_execute:
@@ -1509,8 +1522,6 @@ def _compile_module(
             src_envs = src_envs,
             packagedb_tag = packagedb_tag,
         ))
-
-        compile_cmd_args.add(common_args.oneshot_wrapper_args)
 
         dep_files = {
             "abi": abi_tag,
