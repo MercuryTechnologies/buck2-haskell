@@ -1093,6 +1093,8 @@ def _get_actual_link_style(ctx: AnalysisContext, preferred_linkage: Linkage) -> 
 
 def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     sources = ctx.attrs.srcs
+    if not sources:
+        fail("{} has no srcs; either add one or delete the target".format(ctx.label))
 
     preferred_linkage = _attr_preferred_linkage(ctx)
     if ctx.attrs.enable_profiling and preferred_linkage == Linkage("any"):
@@ -1554,6 +1556,8 @@ def haskell_binary_impl(ctx: AnalysisContext) -> list[Provider]:
 
 def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     sources = ctx.attrs.srcs
+    if not sources:
+        fail("{} has no srcs; either add one or delete the target".format(ctx.label))
 
     enable_profiling = ctx.attrs.enable_profiling
 
