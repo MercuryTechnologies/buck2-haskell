@@ -8,28 +8,21 @@
 # Implementation of the Haskell build rules.
 
 load("@prelude//:paths.bzl", "paths")
+load("@prelude//:resources.bzl", "ResourceInfo", "create_resource_db", "gather_resources")
 load("@prelude//cxx:archive.bzl", "make_archive")
-load(
-    "@prelude//cxx:cxx_context.bzl",
-    "get_cxx_toolchain_info",
-)
 load(
     "@prelude//cxx:cxx_toolchain_types.bzl",
     "CxxToolchainInfo",
     "LinkerInfo",
     "LinkerType",
-    "PicBehavior",
 )
-load("@prelude//cxx:groups.bzl", "get_dedupped_roots_from_groups")
 load(
     "@prelude//cxx:linker.bzl",
     "LINKERS",
-    "get_rpath_origin",
     "get_shared_library_flags",
 )
 load(
     "@prelude//linking:link_info.bzl",
-    "Archive",
     "ArchiveLinkable",
     "LibOutputStyle",
     "LinkArgs",
@@ -39,7 +32,6 @@ load(
     "LinkedObject",
     "MergedLinkInfo",
     "SharedLibLinkable",
-    "append_linkable_args",
     "default_output_style_for_link_strategy",
     "get_lib_output_style",
     "get_link_args_for_strategy",
@@ -48,14 +40,6 @@ load(
     "map_to_link_infos",
     "to_link_strategy",
     "unpack_link_args",
-)
-load(
-    "@prelude//linking:shared_libraries.bzl",
-    "SharedLibraryInfo",
-    "create_shared_libraries",
-    "create_shlib_symlink_tree",
-    "merge_shared_libraries",
-    "traverse_shared_library_info",
 )
 load("@prelude//linking:types.bzl", "Linkage")
 load(
@@ -66,20 +50,21 @@ load("@prelude//test:inject_test_run_info.bzl", "inject_test_run_info")
 load("@prelude//tests:re_utils.bzl", "get_re_executors_from_props")
 load("@prelude//utils:argfile.bzl", "at_argfile")
 load("@prelude//utils:arglike.bzl", "ArgLike")
-load("@prelude//utils:set.bzl", "set")
 load(
     "@prelude//utils:utils.bzl",
     "dedupe_by_value",
-    "filter_and_map_idx",
-    "flatten",
     "flatten_dict",
 )
-load("@prelude//:resources.bzl", "ResourceInfo", "create_resource_db", "gather_resources")
 load(
     ":compile.bzl",
     "CompileResultInfo",
     "compile",
     "target_metadata",
+)
+load(
+    ":ghc_plugin.bzl",
+    "compute_plugin_flags",
+    "validate_plugins_attrs",
 )
 load(
     ":haskell_haddock.bzl",
@@ -109,17 +94,12 @@ load(
 load(":pkg_conf.bzl", "append_pkg_conf_link_fields_for_link_infos")
 load(":resources.bzl", "haskell_attr_resources")
 load(
-    ":ghc_plugin.bzl",
-    "compute_plugin_flags",
-    "validate_plugins_attrs",
-)
-load(
     ":toolchain.bzl",
-    "DynamicHaskellToolchainPackageDbInfo",
     "DynamicHaskellToolchainLibraryInfo",
-    "HaskellToolchainPackageDbTSet",
+    "DynamicHaskellToolchainPackageDbInfo",
     "HaskellToolchainInfo",
     "HaskellToolchainLibrary",
+    "HaskellToolchainPackageDbTSet",
 )
 load(
     ":util.bzl",
@@ -131,18 +111,12 @@ load(
     "attr_deps_haskell_link_infos_sans_template_deps",
     "attr_deps_haskell_toolchain_libraries",
     "attr_deps_merged_link_infos",
-    "attr_deps_shared_library_infos",
+    "compute_source_module_paths",
     "get_artifact_suffix",
     "get_source_prefixes",
-    "is_haskell_boot",
-    "is_haskell_src",
-    "compute_source_module_paths",
     "make_haskell_names_from_label",
     "output_extensions",
     "src_to_module_name",
-    "srcs_to_pairs",
-    "strip_source_prefix",
-    "to_hash",
 )
 
 HaskellIndexingTSet = transitive_set()
@@ -448,7 +422,6 @@ def _write_package_conf_impl(
         ]
 
     toolchain_lib_ids = [info.providers[DynamicHaskellToolchainLibraryInfo].id for info in toolchain_lib_dyn_infos]
-
 
     conf = cmd_args(
         "name: " + arg.pkgname,
@@ -944,10 +917,10 @@ def _build_haskell_lib(
 
         if objs:
             hidden = compiled.interfaces + \
-                compiled.extra_interfaces + \
-                compiled.extra_interfaces + \
-                compiled.extra_objects + \
-                extra_libs
+                     compiled.extra_interfaces + \
+                     compiled.extra_interfaces + \
+                     compiled.extra_objects + \
+                     extra_libs
             archive = make_archive(ctx, lib_short_path, objs, hidden = hidden)
             lib = archive.artifact
             libs = [lib] + archive.external_objects
@@ -1082,6 +1055,7 @@ def _get_actual_link_style(ctx: AnalysisContext, preferred_linkage: Linkage) -> 
         preferred_linkage,
         pic_behavior,
     )
+
     # TODO(cjhopman): this haskell implementation does not consistently handle LibOutputStyle
     # and LinkStrategy as expected and it's hard to tell what the intent of the existing code is
     # and so we currently just preserve its existing use of the legacy LinkStyle type and just
@@ -1290,6 +1264,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         for dep in attr_deps(ctx)
         if HaskellSourceInfo in dep
     ]
+
     # Node value carries both source pairs and this library's compiler flags.
     # The flags (e.g. -D__LOCAL_PACKAGE_ROOT__) are needed for TH splices that
     # depend on CPP defines to locate data files at the right path.
@@ -1393,7 +1368,6 @@ def _dynamic_link_binary_impl(
         output: OutputArtifact,
         output_symlink_dir: OutputArtifact | None,
         arg: _DynamicLinkBinaryOptions) -> list[Provider]:
-
     link_args = arg.link_args.copy()  # link is already frozen, make a copy
     link_cmd_hidden = []
 
@@ -1446,6 +1420,7 @@ def _dynamic_link_binary_impl(
         for hlib in lib_tset.traverse():
             packagedb_args.add(cmd_args(hlib.empty_db))
             package_args.add(hlib.name)
+
             # Add all the transitive objects except for those in link group.
             # for now, only non-profiled binary
             is_profiled = False
@@ -1502,6 +1477,7 @@ def _dynamic_link_binary_impl(
         for x in toolchain_package_db_tset.traverse():
             shlibs.append(x.path)
         shlibs_dict = {}
+
         # for now, we are just using numbers. Let's make proper naming when HaskellToolchainPackage
         # for toolchain libraries can have more metadata information.
         i = 0
@@ -1510,10 +1486,10 @@ def _dynamic_link_binary_impl(
             k = "{}".format(i)
             shlibs_dict[k] = x
         if output_symlink_dir:
-           actions.symlinked_dir(
-               output_symlink_dir,
-               shlibs_dict,
-           )
+            actions.symlinked_dir(
+                output_symlink_dir,
+                shlibs_dict,
+            )
 
     actions.run(
         link_cmd,
@@ -1573,6 +1549,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     main = ctx.attrs.main
     src_main = ctx.attrs.src_main
+
     # if only one file in srcs, it's automatically assigned to src_main.
     if src_main == None:
         if len(sources) > 1:
@@ -1607,7 +1584,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         worker = worker,
         pkgname = pkgname,
         is_haskell_binary = True,
-        src_main = src_main,        
+        src_main = src_main,
         unit_plugin_flags = plugin_flags.unit,
         srcs_plugin_flags = plugin_flags.srcs,
         extra_tool_paths = plugin_flags.global_tool_paths,
@@ -1866,6 +1843,7 @@ def _dynamic_link_group_shared_impl(
         children = [toolchain_package_db[name] for name in toolchain_deps if name in toolchain_package_db],
     )
     packagedb_args.add(toolchain_package_db_tset.project_as_args("toolchain_package_db"))
+
     # adding toolchain dep packages
     package_args.add(cmd_args(toolchain_deps, prepend = "-package"))
 
@@ -1960,7 +1938,6 @@ def _dynamic_link_group_shared_impl(
             hidden = link_cmd_hidden,
         )
 
-
     actions.run(
         link_cmd,
         category = "haskell_link_group_shared",
@@ -2020,6 +1997,7 @@ def make_haskell_link_group(
     lg_tset_provider = HaskellLinkGroupTSetProvider(
         link_group_tsets = {},
     )
+
     # TODO: for now, support only non-profiling.
     for enable_profiling in [False]:
         # TODO: for now, support only shared link_style.
