@@ -403,7 +403,7 @@ haskell_ghci_global = rule(
             "compiler_flags": attrs.list(attrs.string(), default = []),
             "contacts": attrs.list(attrs.string(), default = []),
             "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
-            "dep": attrs.dep(providers = [HaskellLinkInfo, HaskellSourceInfo]),
+            "deps": attrs.list(attrs.dep(providers = [HaskellLinkInfo, HaskellSourceInfo])),
             "enable_profiling": attrs.bool(default = False),
             "bash": attrs.option(attrs.exec_dep(providers = [RunInfo]), default = None),
             "precompiled_deps": attrs.list(attrs.dep(providers = [HaskellLinkInfo]), default = []),

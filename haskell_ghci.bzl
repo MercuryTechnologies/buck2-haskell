@@ -79,6 +79,7 @@ load(
     "HaskellLibraryProvider",
     "HaskellPackageConfInfo",
     "HaskellSourceInfo",
+    "HaskellSourcesTSet",
 )
 load(":link_info.bzl", "HaskellLinkInfo")
 load(
@@ -1321,9 +1322,16 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
         enable_profiling,
     )
 
-    dep = ctx.attrs.dep
     link_style = LinkStyle("shared")
-
+    deps = ctx.attrs.deps
+    dep_srcs_tset = ctx.actions.tset(
+        HaskellSourcesTSet,
+        children = [dep[HaskellSourceInfo].srcs for dep in deps],
+    )
+    dep_lib_tset = ctx.actions.tset(
+        HaskellLibraryInfoTSet,
+        children = [dep[HaskellLinkInfo].info.get(link_style) for dep in deps],
+    )
     # Collect all transitive source files and per-library compiler flags.
     # Each TSet node carries struct(srcs=[(path, artifact)], compiler_flags=[str]).
     # Compiler flags include CPP defines (e.g. -D__LOCAL_PACKAGE_ROOT__) needed for TH.
@@ -1342,7 +1350,7 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
     src_symlinks = {}
     lib_compiler_flags_seen = {}
     lib_compiler_flags = []
-    for node in dep[HaskellSourceInfo].srcs.traverse():
+    for node in dep_srcs_tset.traverse():
         for (module_path, artifact) in node.srcs:
             if module_path not in precompiled_src_paths:
                 src_symlinks[module_path] = artifact  # last-write-wins on conflict
@@ -1357,7 +1365,7 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
     # Build omnibus SO from the dep's transitive C/C++ deps.
     omnibus_data = _build_haskell_omnibus_so(
         ctx,
-        omnibus_roots = [dep] + list(ctx.attrs.preload_deps) + ctx.attrs.template_deps,
+        omnibus_roots = deps + list(ctx.attrs.preload_deps) + ctx.attrs.template_deps,
     )
 
     # Get transitive toolchain package info from dep's HaskellLibraryInfoTSet.
@@ -1367,12 +1375,11 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
     toolchain_libs = []
     toolchain_packages = []
     prebuilt_db_set = {}
-    lib_tset = dep[HaskellLinkInfo].info.get(link_style)
-    if lib_tset != None:
-        toolchain_libs = lib_tset.reduce("packages")
-        toolchain_packages = lib_tset.reduce("toolchain_packages")
+    if dep_lib_tset != None:
+        toolchain_libs = dep_lib_tset.reduce("packages")
+        toolchain_packages = dep_lib_tset.reduce("toolchain_packages")
         # Also collect any genuine prebuilt package dbs (is_prebuilt=True in HaskellLinkInfo).
-        for lib in lib_tset.traverse():
+        for lib in dep_lib_tset.traverse():
             if lib.is_prebuilt:
                 prebuilt_db_set[lib.db] = None
 
@@ -1466,11 +1473,12 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
     # singletons-th, etc.) don't reach this tiebreaker — they're resolved
     # purely from .conf data by preferring the owning package.
     top_level_toolchain_deps = []
-    dep_provider = dep.get(HaskellLibraryProvider)
-    if dep_provider != None and dep_provider.lib != None:
-        dep_lib_info = dep_provider.lib.get(link_style)
-        if dep_lib_info != None:
-            top_level_toolchain_deps = [tc.name for tc in dep_lib_info.toolchain_dependencies]
+    for dep in deps:
+        dep_provider = dep.get(HaskellLibraryProvider)
+        if dep_provider != None and dep_provider.lib != None:
+            dep_lib_info = dep_provider.lib.get(link_style)
+            if dep_lib_info != None:
+                top_level_toolchain_deps.extend([tc.name for tc in dep_lib_info.toolchain_dependencies])
 
     # Build exposed-package flags. Package specs with parens can't be inlined
     # into a bash exec line (bash treats '(' as special syntax), so we write
