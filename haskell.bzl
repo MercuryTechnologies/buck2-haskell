@@ -1227,11 +1227,15 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         )],
     })
 
-    providers = [
-        DefaultInfo(
+    if ctx.attrs.no_default_info:
+        def_info = DefaultInfo()
+    else:
+        def_info = DefaultInfo(
             default_outputs = default_output,
             sub_targets = sub_targets,
-        ),
+        )
+    providers = [
+        def_info,
         HaskellLibraryProvider(
             lib = hlib_infos,
             prof_lib = prof_hlib_infos,
