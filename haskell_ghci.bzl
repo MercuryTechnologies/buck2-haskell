@@ -1332,6 +1332,7 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
         HaskellLibraryInfoTSet,
         children = [dep[HaskellLinkInfo].info.get(link_style) for dep in deps],
     )
+
     # Collect all transitive source files and per-library compiler flags.
     # Each TSet node carries struct(srcs=[(path, artifact)], compiler_flags=[str]).
     # Compiler flags include CPP defines (e.g. -D__LOCAL_PACKAGE_ROOT__) needed for TH.
@@ -1358,6 +1359,9 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
             if flag not in lib_compiler_flags_seen:
                 lib_compiler_flags_seen[flag] = None
                 lib_compiler_flags.append(flag)
+
+    for source in ctx.attrs.extra_srcs:
+        src_symlinks[source.short_path] = source
 
     src_tree = ctx.actions.symlinked_dir(ctx.label.name + ".all-srcs", src_symlinks)
     dep_srcs_flag = '-i"${DIR}/' + src_tree.short_path + '"'

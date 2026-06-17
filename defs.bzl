@@ -400,6 +400,7 @@ haskell_ghci_global = rule(
     attrs = (
         # @unsorted-dict-items
         {
+            "extra_srcs": attrs.named_set(attrs.source(), sorted = True, default = []),
             "compiler_flags": attrs.list(attrs.string(), default = []),
             "contacts": attrs.list(attrs.string(), default = []),
             "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
