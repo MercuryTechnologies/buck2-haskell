@@ -859,6 +859,7 @@ CommonCompileModuleArgs = record(
     args_for_file = field(cmd_args),
     oneshot_args_for_file = field(cmd_args),
     oneshot_wrapper_args = field(cmd_args),
+    common_args_file = field(Artifact),
     package_env_args = field(cmd_args),
     target_deps_args = field(cmd_args),
     toolchain_package_db = field(dict[str,HaskellToolchainPackageDbTSet]),
@@ -1135,12 +1136,23 @@ def _common_compile_module_args(
         for pkg in direct_deps_by_name:
             target_deps_args.add(cmd_args(pkg, prepend = "-package"))
 
+    # This file is passed as hidden dependencies for make-mode persistent worker
+    # since unit params are loaded only once per unit, so the params are not passed
+    # explicitly for each module build, but still need to trigger rebuilds when changed.
+    common_args_file = actions.declare_output("common_shared.args")
+    actions.write(
+        common_args_file.as_output(),
+        cmd_args(args_for_file, oneshot_args_for_file, oneshot_wrapper_args),
+        allow_args = True,
+    )
+
     return CommonCompileModuleArgs(
         pkgname = arg.pkgname,
         command = command,
+        args_for_file = args_for_file,
         oneshot_args_for_file = oneshot_args_for_file,
         oneshot_wrapper_args = oneshot_wrapper_args,
-        args_for_file = args_for_file,
+        common_args_file = common_args_file,
         package_env_args = package_env_args,
         target_deps_args = target_deps_args,
         toolchain_package_db = toolchain_package_db,
@@ -1276,6 +1288,7 @@ def _compile_make_args(
         md_file,
         "-c",
         hidden = [
+            common_args.common_args_file,
             _get_module_outputs(module, outputs),
             module.source,
         ],
