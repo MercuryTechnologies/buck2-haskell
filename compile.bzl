@@ -1320,7 +1320,7 @@ def _compile_module(
         label: Label,
         module_name: str,
         module: _Module,
-        module_tsets: dict[str, CompiledModuleTSet],
+        module_tsets: DynamicCompileResultInfo,
         md_file: Artifact,
         graph_info: GraphInfo,
         outputs: dict[Artifact, OutputArtifact],
@@ -1361,7 +1361,7 @@ def _compile_module(
 
     # Transitive module dependencies from the same package.
     this_package_modules = [
-        module_tsets[dep_name]
+        module_tsets.modules[dep_name]
         for dep_name in graph_info.graph[module_name]
     ]
 
@@ -1533,7 +1533,7 @@ def _compile_incr(
         actions: AnalysisActions,
         # Note: `module_tsets` is always empty in practice, but this must
         # correspond to `DynamicCompileResultInfo.modules`.
-        module_tsets: dict[str, CompiledModuleTSet],
+        module_tsets: DynamicCompileResultInfo,
         arg: _DynamicDoCompileOptions,
         common_args: CommonCompileModuleArgs,
         graph_info: GraphInfo,
@@ -1546,7 +1546,7 @@ def _compile_incr(
 
     for module_name in post_order_traversal(graph_info.graph):
         module = _get_module_from_map(mapped_modules, module_name)
-        module_tsets[module_name] = _compile_module(
+        module_tsets.modules[module_name] = _compile_module(
             actions,
             aux_deps = arg.sources_deps.get(module.source),
             src_envs = arg.srcs_envs.get(module.source),
@@ -1734,7 +1734,7 @@ def _compile_non_incr(
         actions: AnalysisActions,
         # Note: `module_tsets` is always empty in practice, but this must
         # correspond to `DynamicCompileResultInfo.modules`.
-        module_tsets: dict[str, CompiledModuleTSet],
+        module_tsets: DynamicCompileResultInfo,
         arg: _DynamicDoCompileOptions,
         common_args: CommonCompileModuleArgs,
         graph_info: GraphInfo,
@@ -1777,7 +1777,7 @@ def _compile_non_incr(
 
     for module_name in post_order_traversal(graph_info.graph):
         module = _get_module_from_map(mapped_modules, module_name)
-        module_tsets[module_name] = _make_module_tsets_non_incr(
+        module_tsets.modules[module_name] = _make_module_tsets_non_incr(
             actions,
             module = module,
             graph_info = graph_info,
@@ -1834,7 +1834,6 @@ def _dynamic_do_compile_impl(
     package_deps = md["package_deps"]
 
     mapped_modules = {module_map.get(k, k): v for k, v in arg.modules.items()}
-    module_tsets = {}
 
     # NOTE: This function needs to be defined as internal function since the
     # free variables, module_graph and package_deps, are shared captured state
@@ -1869,6 +1868,7 @@ def _dynamic_do_compile_impl(
     for m in module_graph.keys():
         xs = _create_graph_set(m)
 
+    module_tsets = DynamicCompileResultInfo(modules = {})
     if incremental:
         _compile_incr(
             actions,
@@ -1902,7 +1902,7 @@ def _dynamic_do_compile_impl(
             outputs,
         )
 
-    return [DynamicCompileResultInfo(modules = module_tsets)]
+    return [module_tsets]
 
 _dynamic_do_compile = dynamic_actions(
     impl = _dynamic_do_compile_impl,
