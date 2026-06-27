@@ -82,6 +82,10 @@ GraphInfo = record(
     graph_set = dict[str, ModGraphTSet],
 )
 
+ArtifactOutputMap = record(
+    outputs = dict[Artifact, OutputArtifact],
+)
+
 def _compiled_module_project_as_abi(mod: CompiledModuleInfo) -> cmd_args:
     if mod.abi:
         return cmd_args(mod.abi)
@@ -165,12 +169,13 @@ _Module = record(
 
 def _get_module_outputs(
         module: _Module,
-        outputs: dict[Artifact, OutputArtifact]) -> list[OutputArtifact]:
-    objects = [outputs[obj] for obj in module.objects]
-    extra_objects = [outputs[obj] for obj in module.extra_objects]
-    his = [outputs[hi] for hi in module.interfaces]
-    extra_his = [outputs[hi] for hi in module.extra_interfaces]
-    hies = [outputs[hie] for hie in module.hie_files]
+        outputs: ArtifactOutputMap) -> list[OutputArtifact]:
+    outputs_dict = outputs.outputs
+    objects = [outputs_dict[obj] for obj in module.objects]
+    extra_objects = [outputs_dict[obj] for obj in module.extra_objects]
+    his = [outputs_dict[hi] for hi in module.interfaces]
+    extra_his = [outputs_dict[hi] for hi in module.extra_interfaces]
+    hies = [outputs_dict[hie] for hie in module.hie_files]
     return objects + extra_objects + his + extra_his + hies
 
 _DynamicDoCompileOptions = record(
@@ -1176,18 +1181,19 @@ def _compile_oneshot_args(
         enable_th: bool,
         module: _Module,
         md_file: Artifact,
-        outputs: dict[Artifact, OutputArtifact],
+        outputs: ArtifactOutputMap,
         artifact_suffix: str,
         package_deps: list[str],
         packagedb_tag: ArtifactTag) -> cmd_args:
     args = cmd_args()
     args.add(packagedb_tag.tag_artifacts(common_args.package_env_args))
 
-    objects = [outputs[obj] for obj in module.objects]
-    extra_objects = [outputs[obj] for obj in module.extra_objects]
-    his = [outputs[hi] for hi in module.interfaces]
-    extra_his = [outputs[hi] for hi in module.extra_interfaces]
-    hies = [outputs[hie] for hie in module.hie_files]
+    outputs_dict = outputs.outputs
+    objects = [outputs_dict[obj] for obj in module.objects]
+    extra_objects = [outputs_dict[obj] for obj in module.extra_objects]
+    his = [outputs_dict[hi] for hi in module.interfaces]
+    extra_his = [outputs_dict[hi] for hi in module.extra_interfaces]
+    hies = [outputs_dict[hie] for hie in module.hie_files]
 
     args.add("-o", objects[0])
     if not hies:
@@ -1203,7 +1209,7 @@ def _compile_oneshot_args(
         args.add("-fpackage-db-byte-code")
 
     if module.stub_dir != None:
-        stubs = outputs[module.stub_dir]
+        stubs = outputs_dict[module.stub_dir]
         args.add("-stubdir", stubs)
 
     is_dynamic_too_added = _add_dynamic_too_if_required(is_worker_execute, link_style, args)
@@ -1235,11 +1241,9 @@ def _wrapper_oneshot_args(
         label: Label,
         module_name: str,
         dependency_modules: CompiledModuleTSet,
-        outputs: dict[Artifact, OutputArtifact],
         src_envs: None | dict[str, ArgLike],
         packagedb_tag: ArtifactTag):
     args = cmd_args()
-
     args.add(cmd_args(dependency_modules.reduce("packagedb_deps").keys(), prepend = "--buck2-package-db"))
 
     dep_file = actions.declare_output(".".join([
@@ -1274,7 +1278,7 @@ def _compile_make_args(
         common_args: CommonCompileModuleArgs,
         module_name: str,
         module: _Module,
-        outputs: dict[Artifact, OutputArtifact],
+        outputs: ArtifactOutputMap,
         dependency_modules: CompiledModuleTSet,
         md_file: Artifact) -> cmd_args:
     # Provide all module dependencies to the worker for state restoration from cache, including both the current unit
@@ -1306,10 +1310,10 @@ def _compile_make_args(
 def _shared_wrapper_args(
         tagged_dep_file: TaggedCommandLine | TaggedValue,
         module: _Module,
-        outputs: dict[Artifact, OutputArtifact]) -> cmd_args:
+        outputs: ArtifactOutputMap) -> cmd_args:
     args = cmd_args()
     args.add("--buck2-dep", tagged_dep_file)
-    args.add("--abi-out", outputs[module.hash])
+    args.add("--abi-out", outputs.outputs[module.hash])
     return args
 
 def _compile_module(
@@ -1327,7 +1331,7 @@ def _compile_module(
         module_tsets: DynamicCompileResultInfo,
         md_file: Artifact,
         graph_info: GraphInfo,
-        outputs: dict[Artifact, OutputArtifact],
+        outputs: ArtifactOutputMap, #dict[Artifact, OutputArtifact],
         artifact_suffix: str,
         deps_by_name: DepsByNameInfo,
         aux_deps: None | list[Artifact],
@@ -1403,7 +1407,7 @@ def _compile_module(
         # Since the entire module graph's flags are supposed to be fully initialized in the metadata step, we can't pass
         # any module-specific args to the worker (or rather, the worker ignores them in that case).
         if module.stub_dir != None:
-            stubs = outputs[module.stub_dir]
+            stubs = outputs.outputs[module.stub_dir]
             actions.run(
                 cmd_args(["bash", "-euc", "mkdir -p \"$0\"", stubs]),
                 category = "haskell_stubs",
@@ -1438,7 +1442,6 @@ def _compile_module(
             label = label,
             module_name = module_name,
             dependency_modules = dependency_modules,
-            outputs = outputs,
             src_envs = src_envs,
             packagedb_tag = packagedb_tag,
         ))
@@ -1543,7 +1546,7 @@ def _compile_incr(
         th_modules: list[str],
         package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
         direct_deps_by_name: dict[str, _DirectDep],
-        outputs: dict[Artifact, OutputArtifact]) -> None:
+        outputs: ArtifactOutputMap) -> None:
     is_worker_execute = check_is_worker_execute(arg.worker, arg.allow_worker, arg.haskell_toolchain.use_worker)
     deps_by_name = DepsByNameInfo(
         direct = direct_deps_by_name,
@@ -1747,12 +1750,12 @@ def _compile_non_incr(
         th_modules: list[str],
         package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
         direct_deps_by_name: dict[str, _DirectDep],
-        outputs: dict[Artifact, OutputArtifact]) -> None:
+        outputs: ArtifactOutputMap) -> None:
     haskell_toolchain = arg.haskell_toolchain
     link_style = arg.link_style
     enable_profiling = arg.enable_profiling
 
-    args = cmd_args(hidden = outputs.values())
+    args = cmd_args(hidden = outputs.outputs.values())
     args.add("--ghc", haskell_toolchain.compiler)
     args.add(
         compile_args_for_non_incr(
@@ -1821,7 +1824,7 @@ def _dynamic_do_compile_impl(
         md_file: ArtifactValue,
         arg: _DynamicDoCompileOptions,
         pkg_deps: ResolvedDynamicValue | None,
-        outputs: dict[Artifact, OutputArtifact],
+        outputs_dict: dict[Artifact, OutputArtifact],
         direct_deps_by_name: dict[str, _DirectDep]) -> list[Provider]:
     common_args = _common_compile_module_args(
         actions,
@@ -1874,6 +1877,7 @@ def _dynamic_do_compile_impl(
         xs = _create_graph_set(m)
 
     module_tsets = DynamicCompileResultInfo(modules = {})
+    outputs = ArtifactOutputMap(outputs = outputs_dict)
     if incremental:
         _compile_incr(
             actions,
@@ -1916,7 +1920,7 @@ _dynamic_do_compile = dynamic_actions(
         "md_file": dynattrs.artifact_value(),
         "arg": dynattrs.value(_DynamicDoCompileOptions),
         "pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
-        "outputs": dynattrs.dict(Artifact, dynattrs.output()),
+        "outputs_dict": dynattrs.dict(Artifact, dynattrs.output()),
         "direct_deps_by_name": dynattrs.dict(str, dynattrs.tuple(dynattrs.value(Artifact), dynattrs.dynamic_value())),
     },
 )
@@ -2008,7 +2012,7 @@ def compile(
         incremental = incremental,
         md_file = md_file,
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
-        outputs = {
+        outputs_dict = {
             o: o.as_output()
             for o in interfaces + extra_interfaces + objects + extra_objects + hie_files + stub_dirs + abi_hashes
         },
