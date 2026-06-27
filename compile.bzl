@@ -967,13 +967,9 @@ ModGraphTSet = transitive_set()
 def _categorize_package_deps(
         *,
         module_name: str,
-        this_package_name: str,
         graph_set: dict[str, ModGraphTSet],
-        module_graph: dict[str, list[str]],
-        module_tsets: dict[str, CompiledModuleTSet],
         direct_deps_by_name: dict[str, _DirectDep],
-        toolchain_deps_by_name: dict[str, None],
-        is_worker_execute: bool) -> _IndexedPackageDeps:
+        toolchain_deps_by_name: dict[str, None]) -> _IndexedPackageDeps:
     """
     Arguments:
         module_name: For error messages.
@@ -1329,13 +1325,9 @@ def _compile_module(
 
     categorized_package_deps = _categorize_package_deps(
         module_name = module_name,
-        this_package_name = common_args.pkgname,
         graph_set = graph_set,
-        module_graph = graph,
-        module_tsets = module_tsets,
         direct_deps_by_name = direct_deps_by_name,
         toolchain_deps_by_name = toolchain_deps_by_name,
-        is_worker_execute = is_worker_execute,
     )
 
     toolchain_deps = categorized_package_deps.toolchain_deps
@@ -1699,13 +1691,9 @@ def _make_module_tsets_non_incr(
         pkgname: str) -> CompiledModuleTSet:
     categorized_package_deps = _categorize_package_deps(
         module_name = name,
-        this_package_name = pkgname,
         graph_set = graph_set,
-        module_graph = module_graph,
-        module_tsets = {},
         direct_deps_by_name = direct_deps_by_name,
         toolchain_deps_by_name = toolchain_deps_by_name,
-        is_worker_execute = False,
     )
 
     # Transitive module dependencies from other packages.
