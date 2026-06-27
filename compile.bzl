@@ -969,12 +969,16 @@ _IndexedPackageDeps = record(
     exposed_package_dbs = list[Artifact],
 )
 
+DepsByNameInfo = record(
+    direct = dict[str, _DirectDep],
+    toolchain = dict[str, None],
+)
+
 def _categorize_package_deps(
         *,
         module_name: str,
         graph_info: GraphInfo,
-        direct_deps_by_name: dict[str, _DirectDep],
-        toolchain_deps_by_name: dict[str, None]) -> _IndexedPackageDeps:
+        deps_by_name: DepsByNameInfo) -> _IndexedPackageDeps:
     """
     Arguments:
         module_name: For error messages.
@@ -987,10 +991,10 @@ def _categorize_package_deps(
     if graph_info.graph_set.get(module_name):
         tset = graph_info.graph_set.get(module_name)
         for (dep_pkgname, dep_modules) in tset.value[1].items():
-            if dep_pkgname in toolchain_deps_by_name:
+            if dep_pkgname in deps_by_name.toolchain:
                 toolchain_deps.append(dep_pkgname)
-            elif dep_pkgname in direct_deps_by_name:
-                direct_dep = direct_deps_by_name[dep_pkgname]
+            elif dep_pkgname in deps_by_name.direct:
+                direct_dep = deps_by_name.direct[dep_pkgname]
 
                 exposed_package_dbs.append(_direct_dep_artifact(direct_dep))
 
@@ -1325,8 +1329,7 @@ def _compile_module(
         graph_info: GraphInfo,
         outputs: dict[Artifact, OutputArtifact],
         artifact_suffix: str,
-        direct_deps_by_name: dict[str, typing.Any],
-        toolchain_deps_by_name: dict[str, None],
+        deps_by_name: DepsByNameInfo,
         aux_deps: None | list[Artifact],
         src_envs: None | dict[str, ArgLike],
         worker: None | WorkerInfo,
@@ -1342,8 +1345,7 @@ def _compile_module(
     categorized_package_deps = _categorize_package_deps(
         module_name = module_name,
         graph_info = graph_info,
-        direct_deps_by_name = direct_deps_by_name,
-        toolchain_deps_by_name = toolchain_deps_by_name,
+        deps_by_name = deps_by_name,
     )
 
     toolchain_deps = categorized_package_deps.toolchain_deps
@@ -1543,6 +1545,10 @@ def _compile_incr(
         direct_deps_by_name: dict[str, _DirectDep],
         outputs: dict[Artifact, OutputArtifact]) -> None:
     is_worker_execute = check_is_worker_execute(arg.worker, arg.allow_worker, arg.haskell_toolchain.use_worker)
+    deps_by_name = DepsByNameInfo(
+        direct = direct_deps_by_name,
+        toolchain = arg.toolchain_deps_by_name,
+    )
 
     for module_name in post_order_traversal(graph_info.graph):
         module = _get_module_from_map(mapped_modules, module_name)
@@ -1564,8 +1570,7 @@ def _compile_incr(
             outputs = outputs,
             md_file = arg.md_file,
             artifact_suffix = arg.artifact_suffix,
-            direct_deps_by_name = direct_deps_by_name,
-            toolchain_deps_by_name = arg.toolchain_deps_by_name,
+            deps_by_name = deps_by_name,
             worker = arg.worker,
             allow_worker = arg.allow_worker,
             allow_cache_upload = arg.allow_cache_upload,
