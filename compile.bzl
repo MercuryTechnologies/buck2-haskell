@@ -74,6 +74,14 @@ CompiledModuleInfo = provider(fields = {
     "package": provider_field(str),
 })
 
+# Module dependency graph transitive sets including package deps as leaves
+ModGraphTSet = transitive_set()
+
+GraphInfo = record(
+    graph = dict[str, list[str]],  # `dict[modname, list[modname]]`
+    graph_set = dict[str, ModGraphTSet],
+)
+
 def _compiled_module_project_as_abi(mod: CompiledModuleInfo) -> cmd_args:
     if mod.abi:
         return cmd_args(mod.abi)
@@ -324,7 +332,6 @@ def _modules_by_name(
             stub_dir = stub_dir,
             prefix_dir = prefix_dir,
         )
-
     return modules
 
 # Collect the unit flags and build plans of the transitive closure of the current unit's dependencies.
@@ -962,13 +969,10 @@ _IndexedPackageDeps = record(
     exposed_package_dbs = list[Artifact],
 )
 
-# Module dependency graph transitive sets including package deps as leaves
-ModGraphTSet = transitive_set()
-
 def _categorize_package_deps(
         *,
         module_name: str,
-        graph_set: dict[str, ModGraphTSet],
+        graph_info: GraphInfo,
         direct_deps_by_name: dict[str, _DirectDep],
         toolchain_deps_by_name: dict[str, None]) -> _IndexedPackageDeps:
     """
@@ -980,8 +984,8 @@ def _categorize_package_deps(
     exposed_package_dbs = []
     package_deps = []
 
-    if graph_set.get(module_name):
-        tset = graph_set.get(module_name)
+    if graph_info.graph_set.get(module_name):
+        tset = graph_info.graph_set.get(module_name)
         for (dep_pkgname, dep_modules) in tset.value[1].items():
             if dep_pkgname in toolchain_deps_by_name:
                 toolchain_deps.append(dep_pkgname)
@@ -1318,8 +1322,7 @@ def _compile_module(
         module: _Module,
         module_tsets: dict[str, CompiledModuleTSet],
         md_file: Artifact,
-        graph: dict[str, list[str]],
-        graph_set: dict[str, ModGraphTSet],
+        graph_info: GraphInfo,
         outputs: dict[Artifact, OutputArtifact],
         artifact_suffix: str,
         direct_deps_by_name: dict[str, typing.Any],
@@ -1338,7 +1341,7 @@ def _compile_module(
 
     categorized_package_deps = _categorize_package_deps(
         module_name = module_name,
-        graph_set = graph_set,
+        graph_info = graph_info,
         direct_deps_by_name = direct_deps_by_name,
         toolchain_deps_by_name = toolchain_deps_by_name,
     )
@@ -1359,7 +1362,7 @@ def _compile_module(
     # Transitive module dependencies from the same package.
     this_package_modules = [
         module_tsets[dep_name]
-        for dep_name in graph[module_name]
+        for dep_name in graph_info.graph[module_name]
     ]
 
     dependency_modules = actions.tset(
@@ -1533,16 +1536,15 @@ def _compile_incr(
         module_tsets: dict[str, CompiledModuleTSet],
         arg: _DynamicDoCompileOptions,
         common_args: CommonCompileModuleArgs,
-        graph: dict[str, list[str]],  # `dict[modname, list[modname]]`
+        graph_info: GraphInfo,
         mapped_modules: dict[str, _Module],
         th_modules: list[str],
         package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
-        graph_set: dict[str, ModGraphTSet],
         direct_deps_by_name: dict[str, _DirectDep],
         outputs: dict[Artifact, OutputArtifact]) -> None:
     is_worker_execute = check_is_worker_execute(arg.worker, arg.allow_worker, arg.haskell_toolchain.use_worker)
 
-    for module_name in post_order_traversal(graph):
+    for module_name in post_order_traversal(graph_info.graph):
         module = _get_module_from_map(mapped_modules, module_name)
         module_tsets[module_name] = _compile_module(
             actions,
@@ -1558,8 +1560,7 @@ def _compile_incr(
             module_name = module_name,
             module = module,
             module_tsets = module_tsets,
-            graph = graph,
-            graph_set = graph_set,
+            graph_info = graph_info,
             outputs = outputs,
             md_file = arg.md_file,
             artifact_suffix = arg.artifact_suffix,
@@ -1696,15 +1697,14 @@ def compile_args_for_non_incr(
 def _make_module_tsets_non_incr(
         actions: AnalysisActions,
         module: _Module,
-        graph_set: dict[str, ModGraphTSet],
-        module_graph: dict[str, list[str]],
+        graph_info: GraphInfo,
         toolchain_deps_by_name: dict[str, None],
         direct_deps_by_name: dict[str, _DirectDep],
         name: str,
         pkgname: str) -> CompiledModuleTSet:
     categorized_package_deps = _categorize_package_deps(
         module_name = name,
-        graph_set = graph_set,
+        graph_info = graph_info,
         direct_deps_by_name = direct_deps_by_name,
         toolchain_deps_by_name = toolchain_deps_by_name,
     )
@@ -1737,11 +1737,10 @@ def _compile_non_incr(
         module_tsets: dict[str, CompiledModuleTSet],
         arg: _DynamicDoCompileOptions,
         common_args: CommonCompileModuleArgs,
-        graph: dict[str, list[str]],  # `dict[modname, list[modname]]`
+        graph_info: GraphInfo,
         mapped_modules: dict[str, _Module],
         th_modules: list[str],
         package_deps: dict[str, dict[str, list[str]]],  # `dict[modname, dict[pkgname, list[modname]]`
-        graph_set: dict[str, ModGraphTSet],
         direct_deps_by_name: dict[str, _DirectDep],
         outputs: dict[Artifact, OutputArtifact]) -> None:
     haskell_toolchain = arg.haskell_toolchain
@@ -1776,13 +1775,12 @@ def _compile_non_incr(
 
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
-    for module_name in post_order_traversal(graph):
+    for module_name in post_order_traversal(graph_info.graph):
         module = _get_module_from_map(mapped_modules, module_name)
         module_tsets[module_name] = _make_module_tsets_non_incr(
             actions,
             module = module,
-            graph_set = graph_set,
-            module_graph = graph,
+            graph_info = graph_info,
             toolchain_deps_by_name = arg.toolchain_deps_by_name,
             direct_deps_by_name = direct_deps_by_name,
             name = module_name,
@@ -1877,11 +1875,13 @@ def _dynamic_do_compile_impl(
             module_tsets,
             arg,
             common_args,
-            module_graph,
+            GraphInfo(
+                graph = module_graph,
+                graph_set = graph_set,
+            ),
             mapped_modules,
             th_modules,
             package_deps,
-            graph_set,
             direct_deps_by_name,
             outputs,
         )
@@ -1891,11 +1891,13 @@ def _dynamic_do_compile_impl(
             module_tsets,
             arg,
             common_args,
-            module_graph,
+            GraphInfo(
+                graph = module_graph,
+                graph_set = graph_set,
+            ),
             mapped_modules,
             th_modules,
             package_deps,
-            graph_set,
             direct_deps_by_name,
             outputs,
         )
