@@ -1283,11 +1283,9 @@ def _compile_make_args(
         md_file: Artifact) -> cmd_args:
     # Provide all module dependencies to the worker for state restoration from cache, including both the current unit
     # and other library targets.
-    # Topological order is necessary to ensure that no module is loaded before its dependencies are, and since this
-    # places the most downstream item at the head of the list, we need to reverse it.
-    dep_modules = reversed(dependency_modules.project_as_json("dep_modules", ordering = "topological").traverse())
+    dep_modules = dependency_modules.project_as_json("dep_modules", ordering = "postorder")
     dep_modules_file = actions.declare_output("dep-modules-{}.json".format(module_name))
-    actions.write_json(dep_modules_file, dep_modules, with_inputs = True, pretty = True)
+    actions.write_json(dep_modules_file, dep_modules, with_inputs = True)
 
     return cmd_args(
         "--dep-modules",
