@@ -629,6 +629,7 @@ def _dynamic_target_metadata_impl(
             category = "haskell_buildplan",
             identifier = arg.suffix if arg.suffix else None,
             exe = WorkerRunInfo(worker = arg.worker),
+            allow_cache_upload = arg.allow_cache_upload,
         )
         md_args.add(dep_units)
         md_args.add("--build-plan", build_plan)
