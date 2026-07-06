@@ -979,43 +979,63 @@ DepsByNameInfo = record(
     toolchain = dict[str, None],
 )
 
+ModulePackageDeps = record(
+    packages = dict[str, list[str]],  # `dict[pkgname, list[modname]]`
+)
+
 def _categorize_package_deps(
+        *,
+        module_name: str,
+        module_package_deps: ModulePackageDeps,
+        deps_by_name: DepsByNameInfo) -> _IndexedPackageDeps:
+    toolchain_deps = []
+    exposed_package_modules = []
+    exposed_package_dbs = []
+
+    for (dep_pkgname, dep_modules) in module_package_deps.packages.items():
+        if dep_pkgname in deps_by_name.toolchain:
+            toolchain_deps.append(dep_pkgname)
+        elif dep_pkgname in deps_by_name.direct:
+            direct_dep = deps_by_name.direct[dep_pkgname]
+
+            exposed_package_dbs.append(_direct_dep_artifact(direct_dep))
+
+            for dep_modname in dep_modules:
+                exposed_package_modules.append(_direct_dep_compile_result(direct_dep).modules[dep_modname])
+        else:
+            fail("Unknown library dependency '{}' for module '{}'. Add the library to the `deps` attribute".format(dep_pkgname, module_name))
+
+    return _IndexedPackageDeps(
+        toolchain_deps = toolchain_deps,
+        package_deps = [],
+        exposed_package_modules = exposed_package_modules,
+        exposed_package_dbs = exposed_package_dbs,
+    )
+
+def _categorize_package_deps_oneshot(
         *,
         module_name: str,
         graph_info: GraphInfo,
         deps_by_name: DepsByNameInfo) -> _IndexedPackageDeps:
-    """
-    Arguments:
-        module_name: For error messages.
-    """
-    toolchain_deps = []
-    exposed_package_modules = []
-    exposed_package_dbs = []
+    tset = graph_info.graph_set.get(module_name)
+
+    categorized = _categorize_package_deps(
+        module_name = module_name,
+        module_package_deps = ModulePackageDeps(packages = tset.value[1] if tset else {}),
+        deps_by_name = deps_by_name,
+    )
+
     package_deps = []
-
-    if graph_info.graph_set.get(module_name):
-        tset = graph_info.graph_set.get(module_name)
-        for (dep_pkgname, dep_modules) in tset.value[1].items():
-            if dep_pkgname in deps_by_name.toolchain:
-                toolchain_deps.append(dep_pkgname)
-            elif dep_pkgname in deps_by_name.direct:
-                direct_dep = deps_by_name.direct[dep_pkgname]
-
-                exposed_package_dbs.append(_direct_dep_artifact(direct_dep))
-
-                for dep_modname in dep_modules:
-                    exposed_package_modules.append(_direct_dep_compile_result(direct_dep).modules[dep_modname])
-            else:
-                fail("Unknown library dependency '{}' for module '{}'. Add the library to the `deps` attribute".format(dep_pkgname, module_name))
+    if tset != None:
         for (p, _) in tset.traverse():
             if p[0] == "_":
                 package_deps.append(p[1:])
 
     return _IndexedPackageDeps(
-        toolchain_deps = toolchain_deps,
+        toolchain_deps = categorized.toolchain_deps,
         package_deps = package_deps,
-        exposed_package_modules = exposed_package_modules,
-        exposed_package_dbs = exposed_package_dbs,
+        exposed_package_modules = categorized.exposed_package_modules,
+        exposed_package_dbs = categorized.exposed_package_dbs,
     )
 
 # This function is from prelude//cxx/preprocessor.bzl only with ctx.actions -> actions
@@ -1337,6 +1357,7 @@ def _compile_module(
         worker: None | WorkerInfo,
         allow_worker: bool,
         allow_cache_upload: bool,
+        module_package_deps: ModulePackageDeps | None = None,
         module_plugin_flags: cmd_args | None = None,
         module_plugin_tool_paths: typing.Any = None) -> CompiledModuleTSet:
     is_worker_execute = check_is_worker_execute(worker, allow_worker, haskell_toolchain.use_worker)
@@ -1344,11 +1365,18 @@ def _compile_module(
     abi_tag = actions.artifact_tag()
     packagedb_tag = actions.artifact_tag()
 
-    categorized_package_deps = _categorize_package_deps(
-        module_name = module_name,
-        graph_info = graph_info,
-        deps_by_name = deps_by_name,
-    )
+    if is_worker_execute:
+        categorized_package_deps = _categorize_package_deps(
+            module_name = module_name,
+            module_package_deps = module_package_deps,
+            deps_by_name = deps_by_name,
+        )
+    else:
+        categorized_package_deps = _categorize_package_deps_oneshot(
+            module_name = module_name,
+            graph_info = graph_info,
+            deps_by_name = deps_by_name,
+        )
 
     toolchain_deps = categorized_package_deps.toolchain_deps
     hidden_toolchain_deps = []
@@ -1575,6 +1603,7 @@ def _compile_incr(
             worker = arg.worker,
             allow_worker = arg.allow_worker,
             allow_cache_upload = arg.allow_cache_upload,
+            module_package_deps = ModulePackageDeps(packages = package_deps.get(module_name, {})),
             module_plugin_flags = arg.srcs_plugin_flags.get(module.source),
             module_plugin_tool_paths = arg.srcs_plugin_tool_paths.get(module.source),
         )
@@ -1708,11 +1737,13 @@ def _make_module_tsets_non_incr(
         direct_deps_by_name: dict[str, _DirectDep],
         name: str,
         pkgname: str) -> CompiledModuleTSet:
-    categorized_package_deps = _categorize_package_deps(
+    categorized_package_deps = _categorize_package_deps_oneshot(
         module_name = name,
         graph_info = graph_info,
-        direct_deps_by_name = direct_deps_by_name,
-        toolchain_deps_by_name = toolchain_deps_by_name,
+        deps_by_name = DepsByNameInfo(
+            direct = direct_deps_by_name,
+            toolchain = toolchain_deps_by_name,
+        ),
     )
 
     # Transitive module dependencies from other packages.
@@ -1870,9 +1901,11 @@ def _dynamic_do_compile_impl(
             graph_set[module_name] = tset
             return tset
 
+    is_worker_execute = check_is_worker_execute(arg.worker, arg.allow_worker, arg.haskell_toolchain.use_worker)
     graph_set = {}
-    for m in module_graph.keys():
-        xs = _create_graph_set(m)
+    if not is_worker_execute:
+        for m in module_graph.keys():
+            xs = _create_graph_set(m)
 
     module_tsets = DynamicCompileResultInfo(modules = {})
     outputs = ArtifactOutputMap(outputs = outputs_dict)
