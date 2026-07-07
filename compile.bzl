@@ -616,8 +616,7 @@ def _dynamic_target_metadata_impl(
         bp_args.add(buck2_args)
         # Specifying this activates the new build plan logic
         bp_args.add("--build-plan", cmd_args(build_plan, ignore_artifacts = True))
-        # Select which fields are added to the build plan
-        bp_args.add("--fields", "exposed_modules,module_graph,package_deps,project_deps,toolchain_deps,th_modules,cache")
+        bp_args.add("--fields", "exposed_modules,module_graph,package_deps,th_modules,cache")
         bp_args.add(dep_units)
         bp_args.add("--unit", unit.name)
         if munit.is_binary:

@@ -130,7 +130,7 @@ def main():
     result = obtain_target_metadata(args)
 
     json.dump(
-        result, args.output, indent=4, sort_keys=True, default=json_default_handler
+        result, args.output, sort_keys=True, default=json_default_handler
     )
 
 
