@@ -109,7 +109,7 @@ def _compiled_module_reduce_as_packagedb_deps(children: list[dict[Artifact, None
 # Used by the persistent worker in the compile action to restore the target module's transitive dependencies from cache
 # into the home package tables of the respective units.
 def _compiled_module_json_as_dep_modules(mod: CompiledModuleInfo) -> struct:
-    return struct(name = mod.name, package = mod.package, interfaces = mod.interfaces)
+    return struct(name = mod.name, package = mod.package)
 
 CompiledModuleTSet = transitive_set(
     args_projections = {
