@@ -747,7 +747,7 @@ def target_metadata(
         ),
     ))
 
-    return md_file
+    return md_file.with_associated_artifacts([src for src in sources if not src.is_source])
 
 def _attr_deps_haskell_lib_package_name_and_prefix(ctx: AnalysisContext, link_style: LinkStyle) -> cmd_args:
     args = cmd_args(prepend = "--package")
