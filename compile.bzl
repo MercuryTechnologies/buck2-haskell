@@ -106,11 +106,6 @@ def _compiled_module_reduce_as_packagedb_deps(children: list[dict[Artifact, None
         result.update(child)
     return result
 
-# Used by the persistent worker in the compile action to restore the target module's transitive dependencies from cache
-# into the home package tables of the respective units.
-def _compiled_module_json_as_dep_modules(mod: CompiledModuleInfo) -> struct:
-    return struct(name = mod.name, package = mod.package)
-
 CompiledModuleTSet = transitive_set(
     args_projections = {
         "abi": _compiled_module_project_as_abi,
@@ -119,9 +114,6 @@ CompiledModuleTSet = transitive_set(
     },
     reductions = {
         "packagedb_deps": _compiled_module_reduce_as_packagedb_deps,
-    },
-    json_projections = {
-        "dep_modules": _compiled_module_json_as_dep_modules,
     },
 )
 
@@ -1296,22 +1288,12 @@ def _wrapper_oneshot_args(
 
 # Arguments for the worker when running in make mode.
 def _compile_make_args(
-        actions: AnalysisActions,
         common_args: CommonCompileModuleArgs,
         module_name: str,
         module: _Module,
         outputs: ArtifactOutputMap,
-        dependency_modules: CompiledModuleTSet,
         md_file: Artifact) -> cmd_args:
-    # Provide all module dependencies to the worker for state restoration from cache, including both the current unit
-    # and other library targets.
-    dep_modules = dependency_modules.project_as_json("dep_modules", ordering = "postorder")
-    dep_modules_file = actions.declare_output("dep-modules-{}.json".format(module_name))
-    actions.write_json(dep_modules_file, dep_modules, with_inputs = True)
-
     return cmd_args(
-        "--dep-modules",
-        dep_modules_file,
         "--unit",
         common_args.pkgname,
         "--module",
@@ -1422,12 +1404,10 @@ def _compile_module(
     # unit env instead of package DBs to load them.
     if is_worker_execute:
         wrapper_args_for_file.add(_compile_make_args(
-            actions,
             common_args = common_args,
             module_name = module_name,
             module = module,
             outputs = outputs,
-            dependency_modules = dependency_modules,
             md_file = md_file,
         ))
 
