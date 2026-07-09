@@ -628,7 +628,9 @@ def _dynamic_target_metadata_impl(
             category = "haskell_buildplan",
             identifier = arg.suffix if arg.suffix else None,
             exe = WorkerRunInfo(worker = arg.worker),
-            allow_cache_upload = arg.allow_cache_upload,
+            # Until we upgrade GHC with fixed_nodes feature (lightweight module node loading for
+            # dependency analysis), we cannot cache buildplan results.
+            allow_cache_upload = False,
         )
         md_args.add(dep_units)
         md_args.add("--build-plan", build_plan)
