@@ -1455,7 +1455,7 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
             output = toolchain_pkg_args_file.as_output(),
             arg = struct(toolchain_libs = all_toolchain_libs),
         ))
-        toolchain_pkgdbs_forced = ctx.actions.declare_output(ctx.label.name + ".pkgdbs")
+        toolchain_pkgdbs_forced = ctx.actions.declare_output(ctx.label.name + ".pkgdbs", dir = True)
         ctx.actions.dynamic_output_new(_ghci_force_toolchain_pkgs(
             pkg_deps = haskell_toolchain.packages.dynamic,
             pkgdbs_dir = toolchain_pkgdbs_forced.as_output(),

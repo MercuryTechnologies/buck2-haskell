@@ -6,6 +6,7 @@
 # of this source tree.
 
 load("@prelude//:paths.bzl", "paths")
+load("@prelude//cxx:cxx_context.bzl", "get_cxx_toolchain_info")
 load(
     "@prelude//cxx:preprocessor.bzl",
     "CPreprocessor",
@@ -2011,7 +2012,9 @@ def compile(
 
     link_args = unpack_link_args(
         get_link_args_for_strategy(
-            ctx,
+            ctx.actions,
+            ctx.label,
+            get_cxx_toolchain_info(ctx).linker_info,
             [
                 lib[MergedLinkInfo]
                 for lib in ctx.attrs.extra_libraries

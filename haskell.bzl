@@ -10,6 +10,7 @@
 load("@prelude//:paths.bzl", "paths")
 load("@prelude//:resources.bzl", "ResourceInfo", "create_resource_db", "gather_resources")
 load("@prelude//cxx:archive.bzl", "make_archive")
+load("@prelude//cxx:cxx_context.bzl", "get_cxx_toolchain_info")
 load(
     "@prelude//cxx:cxx_toolchain_types.bzl",
     "CxxToolchainInfo",
@@ -553,7 +554,9 @@ def _make_package(
 
     link_infos = map_to_link_infos([
         get_link_args_for_strategy(
-            ctx,
+            ctx.actions,
+            ctx.label,
+            get_cxx_toolchain_info(ctx).linker_info,
             [
                 lib[MergedLinkInfo]
                 for lib in ctx.attrs.extra_libraries
@@ -838,7 +841,9 @@ def _build_haskell_lib(
     extra_libs, extra_lib_dyns = _get_extra_lib_artifacts(ctx, link_style)
 
     link_args = unpack_link_args(get_link_args_for_strategy(
-        ctx,
+        ctx.actions,
+        ctx.label,
+        get_cxx_toolchain_info(ctx).linker_info,
         [
             lib[MergedLinkInfo]
             for lib in ctx.attrs.extra_libraries
@@ -857,7 +862,9 @@ def _build_haskell_lib(
         ]
 
         infos = get_link_args_for_strategy(
-            ctx,
+            ctx.actions,
+            ctx.label,
+            get_cxx_toolchain_info(ctx).linker_info,
             nlis,
             to_link_strategy(link_style),
             prefer_stripped = True,
@@ -1607,7 +1614,9 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     # extra-libraries
     link_args.add(unpack_link_args(get_link_args_for_strategy(
-        ctx,
+        ctx.actions,
+        ctx.label,
+        get_cxx_toolchain_info(ctx).linker_info,
         [
             lib[MergedLinkInfo]
             for lib in ctx.attrs.extra_libraries
@@ -2053,7 +2062,9 @@ def make_haskell_link_group(
             # collect all the extra library dependencies from component Haskell libraries
             direct_extra_libs = [elib for p in hlibs for elib in p.lib[link_style].extra_libraries]
             link_args = get_link_args_for_strategy(
-                ctx,
+                ctx.actions,
+                ctx.label,
+                get_cxx_toolchain_info(ctx).linker_info,
                 # These attributes will always have `MergedLinkInfo` and
                 # `GhcLinkableInfo` providers, but the type system doesn't guarantee
                 # that statically, so let's just be safe.
