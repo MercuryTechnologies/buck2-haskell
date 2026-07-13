@@ -56,14 +56,12 @@ load(
     "check_is_worker_execute",
     "decompose_main",
     "get_artifact_suffix",
-    "get_source_prefixes",
     "is_haskell_boot",
     "is_haskell_src",
     "make_haskell_names_from_label",
     "output_extensions",
     "src_to_module_name",
     "srcs_to_pairs",
-    "to_hash",
 )
 
 CompiledModuleInfo = provider(fields = {
@@ -383,6 +381,7 @@ def unit_ghc_args(actions: AnalysisActions, arg: UnitParams) -> cmd_args:
         "-package-env=-",
     )
     args.add(arg.haskell_toolchain.compiler_flags)
+
     # Plugin flags come before compiler_flags so that user-provided flags
     # appear later on the GHC command line and can override earlier defaults.
     if arg.plugin_flags != None:
@@ -449,7 +448,7 @@ def metadata_unit_args(
     ghc_args.add(cmd_args(arg.toolchain_libs, prepend = package_flag))
 
     if not arg.unit.is_worker_execute:
-        ghc_args.add(cmd_args(packages_info.local_packagedb_args, prepend="-package-db"))
+        ghc_args.add(cmd_args(packages_info.local_packagedb_args, prepend = "-package-db"))
 
     ghc_args.add(cmd_args(packages_info.exposed_package_args, hidden = packages_info.local_packagedb_args))
     ghc_args.add(cmd_args(packages_info.packagedb_args, prepend = "-package-db"))
@@ -478,11 +477,10 @@ MetadataParams = record(
 )
 
 def _validate_srcs_batch(
-    actions: AnalysisActions,
-    arg: MetadataParams,
-    batch_name: str,
-    sources: list[Artifact]) -> Artifact:
-
+        actions: AnalysisActions,
+        arg: MetadataParams,
+        batch_name: str,
+        sources: list[Artifact]) -> Artifact:
     batch_output = actions.declare_output("validate_srcs_" + batch_name + ".txt")
     validate_args = cmd_args(arg.validate_srcs, batch_output.as_output())
     for source in sources:
@@ -496,7 +494,7 @@ def _validate_srcs_batch(
         validate_args,
         category = "validate_srcs",
         identifier = batch_name,
-        allow_cache_upload = arg.allow_cache_upload
+        allow_cache_upload = arg.allow_cache_upload,
     )
     return batch_output
 
@@ -505,7 +503,6 @@ def _dynamic_target_metadata_impl(
         output: OutputArtifact,
         arg: MetadataParams,
         pkg_deps: None | ResolvedDynamicValue) -> list[Provider]:
-
     validate_outputs = []
     munit = arg.unit
     unit = munit.unit
@@ -609,6 +606,7 @@ def _dynamic_target_metadata_impl(
         add_worker_args(haskell_toolchain, bp_args, unit.name)
 
         bp_args.add(buck2_args)
+
         # Specifying this activates the new build plan logic
         bp_args.add("--build-plan", cmd_args(build_plan, ignore_artifacts = True))
         bp_args.add("--fields", "exposed_modules,module_graph,package_deps,th_modules,cache")
@@ -875,7 +873,7 @@ CommonCompileModuleArgs = record(
     common_args_file = field(Artifact),
     package_env_args = field(cmd_args),
     target_deps_args = field(cmd_args),
-    toolchain_package_db = field(dict[str,HaskellToolchainPackageDbTSet]),
+    toolchain_package_db = field(dict[str, HaskellToolchainPackageDbTSet]),
 )
 
 def add_worker_args(
@@ -1123,7 +1121,6 @@ def _common_compile_module_args(
         ]
         toolchain_libs = direct_toolchain_libs + libs.reduce("packages") + arg.plugin_toolchain_deps
 
-
         toolchain_package_db_tset = actions.tset(
             HaskellToolchainPackageDbTSet,
             children = [toolchain_package_db[name] for name in toolchain_libs if name in toolchain_package_db],
@@ -1340,7 +1337,7 @@ def _compile_module(
         module_tsets: DynamicCompileResultInfo,
         md_file: Artifact,
         graph_info: GraphInfo,
-        outputs: ArtifactOutputMap, #dict[Artifact, OutputArtifact],
+        outputs: ArtifactOutputMap,  #dict[Artifact, OutputArtifact],
         artifact_suffix: str,
         deps_by_name: DepsByNameInfo,
         aux_deps: None | list[Artifact],
@@ -1786,7 +1783,7 @@ def _compile_non_incr(
             sources = arg.sources,
             external_tool_paths = arg.external_tool_paths,
             link_style = link_style,
-            is_worker_execute = False, # non-incr build is always non-worker.
+            is_worker_execute = False,  # non-incr build is always non-worker.
             link_args = arg.link_args,
             direct_deps_link_info = arg.direct_deps_link_info,
             haskell_direct_deps_lib_infos = arg.haskell_direct_deps_lib_infos,
@@ -1884,8 +1881,8 @@ def _dynamic_do_compile_impl(
 
             if deps:  # not leaf
                 for dep in deps:
-                   dep_tset = _create_graph_set(dep)
-                   children.append(dep_tset)
+                    dep_tset = _create_graph_set(dep)
+                    children.append(dep_tset)
             tset = actions.tset(ModGraphTSet, value = (module_name, mod_pkg_deps), children = children)
             graph_set[module_name] = tset
             return tset

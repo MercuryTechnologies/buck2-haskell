@@ -16,6 +16,10 @@ load(
     "@prelude//cxx:link_types.bzl",
     "link_options",
 )
+load(
+    "@prelude//cxx:linker.bzl",
+    "get_rpath_origin",
+)
 load("@prelude//linking:execution_preference.bzl", "LinkExecutionPreference")
 load(
     "@prelude//linking:link_info.bzl",
@@ -42,16 +46,12 @@ load(
     "with_unique_str_sonames",
 )
 load("@prelude//linking:types.bzl", "Linkage")
-load(
-    "@prelude//cxx:linker.bzl",
-    "get_rpath_origin",
-)
+load("@prelude//utils:argfile.bzl", "at_argfile")
 load(
     "@prelude//utils:graph_utils.bzl",
     "depth_first_traversal",
     "depth_first_traversal_by",
 )
-load("@prelude//utils:argfile.bzl", "at_argfile")
 load("@prelude//utils:utils.bzl", "flatten")
 load(
     ":compile.bzl",
@@ -64,11 +64,6 @@ load(
     ":ghc_plugin.bzl",
     "GhcPluginInfo",
     "compute_plugin_flags",
-    "validate_plugins_attrs",
-)
-load(
-    ":ghc_plugin.bzl",
-    "GhcPluginInfo",
     "get_plugin_flags",
     "validate_plugins_attrs",
 )
@@ -134,7 +129,6 @@ def _write_final_ghci_script(
         ghci_exposed_package_args: [cmd_args, None] = None,
         dep_srcs_flag: [str, None] = None,
         plugin_flags: [cmd_args, None] = None) -> Artifact:
-
     # When srcs are pre-compiled as a package, pass None to omit them from
     # the GHCi script (they'll be loaded via -package instead).
     if srcs_override != None:
@@ -176,8 +170,7 @@ def _write_final_ghci_script(
     omnibus_so = omnibus_data.omnibus
 
     effective_exposed_package_args = (
-        ghci_exposed_package_args if ghci_exposed_package_args != None
-        else packages_info.exposed_package_args
+        ghci_exposed_package_args if ghci_exposed_package_args != None else packages_info.exposed_package_args
     )
 
     final_ghci_script = _replace_macros_in_script_template(
@@ -357,14 +350,14 @@ def _build_haskell_omnibus_so(ctx: AnalysisContext, omnibus_roots: list[Dependen
     soname = "libghci_dependencies.so"
     extra_ldflags = [
         "-rpath",
-        "{}/{}".format(get_rpath_origin(linker_info.type), so_symlinks_root_path)
+        "{}/{}".format(get_rpath_origin(linker_info.type), so_symlinks_root_path),
     ]
     link_result = cxx_link_shared_library(
         ctx,
         soname,
         opts = link_options(
             links = [
-                LinkArgs(flags = cmd_args(cmd_args(extra_ldflags, delimiter=","), format="-Wl,{}")),
+                LinkArgs(flags = cmd_args(cmd_args(extra_ldflags, delimiter = ","), format = "-Wl,{}")),
                 LinkArgs(infos = body_link_infos.values()),
                 LinkArgs(infos = tp_deps_shared_link_infos.values()),
             ],
@@ -636,6 +629,7 @@ def _write_start_ghci(
 
     # base needs to be visible for the following unsetEnv call to succeed
     start_cmd.add(":set -package base")
+
     # Reason for unsetting `LD_PRELOAD` env var obtained from D6255224:
     # "Certain libraries (like allocators) cannot be loaded after the process
     # has started. When needing to use these libraries, send them to a
@@ -831,6 +825,7 @@ _ghci_link_src_lib = dynamic_actions(
 
 def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
     enable_profiling = ctx.attrs.enable_profiling
+
     # Worker-compatibility is not checked yet.
     is_worker_execute = False
 
@@ -981,9 +976,7 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
 
         src_artifact_suffix = get_artifact_suffix(compile_link_style, enable_profiling)
         compiler_suffix = (
-            "-ghc{}".format(haskell_toolchain.compiler_major_version)
-            if haskell_toolchain.compiler_major_version
-            else ""
+            "-ghc{}".format(haskell_toolchain.compiler_major_version) if haskell_toolchain.compiler_major_version else ""
         )
         src_libfile = "lib" + src_libname + compiler_suffix + ".so"
         src_pkg_lib = ctx.actions.declare_output(
@@ -1227,9 +1220,10 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
     )
     ghci_bin_dep = ctx.attrs.ghci_bin_dep.get(RunInfo) if ctx.attrs.ghci_bin_dep else None
     hidden_dep = [ghci_bin_dep] if ghci_bin_dep else []
+
     # Include plugin_flags in hidden deps so Buck2 materializes plugin
     # package DBs, .hi files, .o files, and shared libraries at runtime.
-    run = cmd_args(final_ghci_script, hidden=hidden_dep + outputs + plugin_hidden + [plugin_flags])
+    run = cmd_args(final_ghci_script, hidden = hidden_dep + outputs + plugin_hidden + [plugin_flags])
 
     # When sources are pre-compiled, expose Haskell providers so _ghci targets
     # can be used as deps by other _ghci targets, forming a parallel dep tree.
@@ -1382,6 +1376,7 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
     if dep_lib_tset != None:
         toolchain_libs = dep_lib_tset.reduce("packages")
         toolchain_packages = dep_lib_tset.reduce("toolchain_packages")
+
         # Also collect any genuine prebuilt package dbs (is_prebuilt=True in HaskellLinkInfo).
         for lib in dep_lib_tset.traverse():
             if lib.is_prebuilt:
@@ -1397,6 +1392,7 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
     first_party_package_symlinks_root = ctx.label.name + ".packages"
     first_party_packagedb_args = cmd_args(delimiter = " ")
     seen_precompiled = {}
+
     # Extra toolchain package names referenced by precompiled_deps' transitive closures
     # but absent from the main dep's closure (e.g. test-only libs not depended on by the
     # primary `dep`). These need to be in toolchain_pkgdbs.args so GHCi can satisfy their
@@ -1412,6 +1408,7 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
                 if lib.name not in toolchain_lib_name_set:
                     extra_toolchain_lib_names[lib.name] = None
                 continue
+
             # Collect toolchain deps of this first-party node that aren't in the main
             # dep's closure. This catches toolchain packages that are only transitively
             # reachable via precompiled_deps entries absent from the main dep's tset
@@ -1439,6 +1436,7 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
     # The output file contains "-package-db <nix-path>" lines; the ghci_script.tpl
     # reads it via @${DIR}/toolchain_pkgdbs.args so GHCi can find toolchain packages.
     toolchain_pkg_args_file = ctx.actions.declare_output("toolchain_pkgdbs.args")
+
     # Symlinked dir of toolchain package out.link dirs — forces Buck2 to materialize
     # each package-db on disk before GHCi runs (the write-args-file action is cacheable
     # and doesn't guarantee materialization when its result is served from cache).
@@ -1525,11 +1523,13 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
     prebuilt_packagedb_args = cmd_args(prebuilt_db_set.keys(), delimiter = " ") if prebuilt_db_set else None
 
     compiler_flags = cmd_args(delimiter = " ")
+
     # Hide all packages by default so only explicitly exposed ones are visible.
     # This prevents ambiguous module errors when multiple packages (e.g. cryptohash,
     # crypton, cryptonite) export the same module name.
     # -package-env=- disables the user's Nix/ghc package env to avoid extra conflicts.
     compiler_flags.add(["-hide-all-packages", "-package-env=-"])
+
     # Suppress all warnings in the global interpreted REPL — they are noisy (especially
     # custom lint plugins that fire on every module) and not actionable in a REPL session.
     # Users who want warnings can pass -Wall via ctx.attrs.compiler_flags.
