@@ -61,6 +61,7 @@ load(
     "CompileResultInfo",
     "compile",
     "target_metadata",
+    "target_skeleton",
 )
 load(
     ":ghc_plugin.bzl",
@@ -778,6 +779,7 @@ def _build_haskell_lib(
         enable_profiling: bool,
         enable_haddock: bool,
         md_file: Artifact,
+        skeleton: Artifact | None = None,
         # The non-profiling artifacts are also needed to build the package for
         # profiling, so it should be passed when `enable_profiling` is True.
         non_profiling_hlib: [HaskellLibBuildOutput, None] = None,
@@ -1044,6 +1046,7 @@ def _build_haskell_lib(
         dependencies = toolchain_libs + project_libs,
         toolchain_dependencies = toolchain_libs_full,
         md_file = md_file,
+        skeleton = skeleton,
     )
 
     return HaskellLibBuildOutput(
@@ -1101,6 +1104,8 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
 
     worker = ctx.attrs._worker[WorkerInfo] if ctx.attrs._worker else None
 
+    skeleton = target_skeleton(ctx, sources)
+
     # Validate and compute GHC plugin flags.
     validate_plugins_attrs(ctx)
 
@@ -1149,6 +1154,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
                 # enable haddock only for the first non-profiling hlib
                 enable_haddock = not enable_profiling and not non_profiling_hlib,
                 md_file = md_file,
+                skeleton = skeleton,
                 non_profiling_hlib = non_profiling_hlib.get(link_style),
                 unit_plugin_flags = plugin_flags.unit,
                 srcs_plugin_flags = plugin_flags.srcs,

@@ -31,8 +31,6 @@ load(
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
-    "HaskellSourceInfo",
-    "HaskellSourcesTSet",
 )
 load(
     ":link_info.bzl",
@@ -140,7 +138,6 @@ PackagesInfo = record(
     packagedb_args = cmd_args,
     local_packagedb_args = cmd_args,
     transitive_deps = field(HaskellLibraryInfoTSet),
-    transitive_deps_srcs = field(HaskellSourcesTSet),
 )
 
 # A record that holds module compilation results.
@@ -333,14 +330,21 @@ def _modules_by_name(
         )
     return modules
 
-# Collect the unit flags and build plans of the transitive closure of the current unit's dependencies.
-# Used by the persistent worker in the metadata step to restore all required home unit envs and module graphs from
-# cache.
-def transitive_metadata(actions: AnalysisActions, pkgname: str, packages_info: PackagesInfo) -> cmd_args:
+# Collect the metadata outputs of the transitive closure of the current unit's dependencies.
+def transitive_metadata(actions: AnalysisActions, pkgname: str, packages_info: PackagesInfo) -> Artifact:
     dep_units_file = actions.declare_output("dep-units-{}.json".format(pkgname))
     dep_units = reversed(packages_info.transitive_deps.project_as_json("dep_units", ordering = "topological").traverse())
-    actions.write_json(dep_units_file, dep_units, with_inputs = True, pretty = True)
-    return cmd_args(dep_units_file, prepend = "--dep-units")
+    actions.write_json(dep_units_file, dep_units, pretty = True)
+    return dep_units_file
+
+# Static variant of the dependency unit list for the persistent worker's metadata calculation.
+def transitive_metadata_static(actions: AnalysisActions, pkgname: str, packages_info: PackagesInfo) -> cmd_args:
+    dep_units_file = actions.declare_output("dep-units-static-{}.json".format(pkgname))
+    dep_units = packages_info.transitive_deps.project_as_json("dep_units_static", ordering = "postorder")
+    return cmd_args(
+        actions.write_json(dep_units_file, dep_units, with_inputs = True, pretty = True),
+        prepend = "--dep-units-static",
+    )
 
 def add_output_dirs(args: cmd_args, output_dir: cmd_args):
     for dir in ["o", "hi", "hie", "dump"]:
@@ -450,8 +454,12 @@ def metadata_unit_args(
 
     if not arg.unit.is_worker_execute:
         ghc_args.add(cmd_args(packages_info.local_packagedb_args, prepend = "-package-db"))
+        ghc_args.add(cmd_args(packages_info.exposed_package_args, hidden = packages_info.local_packagedb_args))
+    else:
+        # Real local package dbs are not inputs because the worker resolves local package flags against the db
+        # built from --dep-units-static data.
+        ghc_args.add(packages_info.exposed_package_args)
 
-    ghc_args.add(cmd_args(packages_info.exposed_package_args, hidden = packages_info.local_packagedb_args))
     ghc_args.add(cmd_args(packages_info.packagedb_args, prepend = "-package-db"))
     ghc_args.add("-fprefer-byte-code")
     ghc_args.add("-fpackage-db-byte-code")
@@ -464,7 +472,6 @@ MetadataParams = record(
     unit = field(MetadataUnitParams),
     direct_deps_link_info = field(list[HaskellLinkInfo]),
     haskell_direct_deps_lib_infos = field(list[HaskellLibraryInfo]),
-    lib_package_name_and_prefix = field(cmd_args),
     md_gen = field(RunInfo),
     validate_srcs = field(RunInfo | None),
     sources = field(list[Artifact]),
@@ -567,9 +574,6 @@ def _dynamic_target_metadata_impl(
 
     md_args.add("--source-prefix", arg.strip_prefix)
 
-    if is_worker_execute:
-        md_args.add(arg.lib_package_name_and_prefix)
-
     md_args.add("--output", output)
 
     buck_args_file = argfile(
@@ -600,7 +604,6 @@ def _dynamic_target_metadata_impl(
     md_args.add("--unit-args", ghc_args_file)
 
     if is_worker_execute:
-        dep_units = transitive_metadata(actions, unit.name, packages_info)
         bp_args = cmd_args()
         bp_args.add("-M")
         bp_args.add("--ghc-dir", haskell_toolchain.ghc_dir)
@@ -611,12 +614,11 @@ def _dynamic_target_metadata_impl(
         # Specifying this activates the new build plan logic
         bp_args.add("--build-plan", cmd_args(build_plan, ignore_artifacts = True))
         bp_args.add("--fields", "exposed_modules,module_graph,package_deps,th_modules,cache")
-        bp_args.add(dep_units)
+        bp_args.add(transitive_metadata_static(actions, unit.name, packages_info))
         bp_args.add("--unit", unit.name)
         if munit.is_binary:
             bp_args.add("--unit-is-binary")
         bp_args.add(cmd_args(ghc_args_file, prepend = "--ghc-args", hidden = [build_plan.as_output(), makefile.as_output()]))
-        bp_args.add(cmd_args(hidden = packages_info.transitive_deps_srcs.project_as_args("sources")))
 
         actions.run(
             bp_args,
@@ -625,9 +627,8 @@ def _dynamic_target_metadata_impl(
             exe = WorkerRunInfo(worker = arg.worker),
             allow_cache_upload = arg.allow_cache_upload,
         )
-        md_args.add(dep_units)
+        md_args.add("--dep-units", transitive_metadata(actions, unit.name, packages_info))
         md_args.add("--build-plan", build_plan)
-        md_args.add("--unit-args", ghc_args_file)
     else:
         # We won't need to look at the ghc argsfile later, but the user might!
         md_args.add("--use-ghc-args-file-at", actions.declare_output("ghc-args").as_output())
@@ -728,7 +729,6 @@ def target_metadata(
             ),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
-            lib_package_name_and_prefix = _attr_deps_haskell_lib_package_name_and_prefix(ctx, link_style),
             md_gen = md_gen,
             validate_srcs = validate_srcs,
             sources = sources,
@@ -744,26 +744,29 @@ def target_metadata(
 
     return md_file.with_associated_artifacts([src for src in sources if not src.is_source])
 
-def _attr_deps_haskell_lib_package_name_and_prefix(ctx: AnalysisContext, link_style: LinkStyle) -> cmd_args:
-    args = cmd_args(prepend = "--package")
-
-    for dep in attr_deps(ctx) + ctx.attrs.template_deps:
-        lib = dep.get(HaskellLibraryProvider)
-        if lib == None:
+# List of a unit's modules for the persistent worker's metadata calculation.
+def target_skeleton(ctx: AnalysisContext, sources: list[Artifact]) -> Artifact:
+    # Mirrors the module naming of _modules_by_name.
+    # Boot files are skipped because they are not importable from other units.
+    modules = []
+    for src in sources:
+        if is_haskell_boot(src.short_path) or not is_haskell_src(src.short_path):
             continue
 
-        lib_info = lib.lib[link_style]
-        if (lib_info.deps_db):
-            pkg_root = cmd_args(lib_info.deps_db, parent = 1)
+        module_name = src_to_module_name(src.short_path)
+        if ctx.attrs.module_prefix:
+            module_name = "{}.{}".format(ctx.attrs.module_prefix, module_name)
         else:
-            pkg_root = cmd_args(lib_info.db, parent = 1)
-        args.add(cmd_args(
-            lib_info.name,
-            pkg_root,
-            delimiter = ":",
-        ))
+            for prefix in ctx.attrs.strip_prefix:
+                if strip_prefix(prefix, src.short_path) != None:
+                    module_name = _strip_prefix(".", _strip_prefix(prefix.replace("/", "."), module_name))
+                    break
 
-    return args
+        modules.append(module_name)
+
+    skeleton_file = ctx.actions.declare_output("skeleton.json")
+    ctx.actions.write_json(skeleton_file, modules, pretty = True)
+    return skeleton_file
 
 def _package_flag(toolchain: HaskellToolchainInfo) -> str:
     if toolchain.support_expose_package:
@@ -792,11 +795,6 @@ def get_packages_info(
             lib.prof_info[link_style] if enable_profiling else lib.info[link_style]
             for lib in direct_deps_link_info
         ],
-    )
-
-    dep_srcs_tset = actions.tset(
-        HaskellSourcesTSet,
-        children = [dep[HaskellSourceInfo].srcs for dep in deps if dep.get(HaskellSourceInfo)],
     )
 
     hidden_args = [l for lib in libs.traverse() for l in lib.libs]
@@ -862,7 +860,6 @@ def get_packages_info(
         local_packagedb_args = local_packagedb_args,
         packagedb_args = packagedb_args,
         transitive_deps = libs,
-        transitive_deps_srcs = dep_srcs_tset,
     )
 
 CommonCompileModuleArgs = record(
