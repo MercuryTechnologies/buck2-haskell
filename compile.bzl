@@ -31,8 +31,6 @@ load(
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
-    "HaskellSourceInfo",
-    "HaskellSourcesTSet",
 )
 load(
     ":link_info.bzl",
@@ -140,7 +138,6 @@ PackagesInfo = record(
     packagedb_args = cmd_args,
     local_packagedb_args = cmd_args,
     transitive_deps = field(HaskellLibraryInfoTSet),
-    transitive_deps_srcs = field(HaskellSourcesTSet),
 )
 
 # A record that holds module compilation results.
@@ -622,7 +619,6 @@ def _dynamic_target_metadata_impl(
         if munit.is_binary:
             bp_args.add("--unit-is-binary")
         bp_args.add(cmd_args(ghc_args_file, prepend = "--ghc-args", hidden = [build_plan.as_output(), makefile.as_output()]))
-        bp_args.add(cmd_args(hidden = packages_info.transitive_deps_srcs.project_as_args("sources")))
 
         actions.run(
             bp_args,
@@ -801,11 +797,6 @@ def get_packages_info(
         ],
     )
 
-    dep_srcs_tset = actions.tset(
-        HaskellSourcesTSet,
-        children = [dep[HaskellSourceInfo].srcs for dep in deps if dep.get(HaskellSourceInfo)],
-    )
-
     hidden_args = [l for lib in libs.traverse() for l in lib.libs]
     exposed_package_args = cmd_args()
 
@@ -869,7 +860,6 @@ def get_packages_info(
         local_packagedb_args = local_packagedb_args,
         packagedb_args = packagedb_args,
         transitive_deps = libs,
-        transitive_deps_srcs = dep_srcs_tset,
     )
 
 CommonCompileModuleArgs = record(

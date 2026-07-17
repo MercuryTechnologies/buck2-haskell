@@ -135,15 +135,7 @@ HaskellLibraryInfoTSet = transitive_set(
 # Transitive set carrying (module_path, source_artifact) pairs from haskell_library targets.
 # Each node's value is a list of (str, Artifact) where str is the path relative to the
 # source root (strip_prefix applied), e.g. "App/Foo.hs".
-def _project_as_sources(source_info: struct) -> cmd_args:
-    sources = [ src for _, src in source_info.srcs]
-    return cmd_args(sources)
-
-HaskellSourcesTSet = transitive_set(
-    args_projections = {
-        "sources": _project_as_sources,
-    }
-)
+HaskellSourcesTSet = transitive_set()
 
 HaskellSourceInfo = provider(
     fields = {
