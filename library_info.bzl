@@ -109,12 +109,6 @@ def _json_as_dep_units(lib: HaskellLibraryInfo) -> struct:
         build_plan = lib.md_file,
     )
 
-def _json_as_dep_units_static(lib: HaskellLibraryInfo) -> struct:
-    return struct(
-        name = lib.name,
-        build_plan = lib.skeleton,
-    )
-
 HaskellLibraryInfoTSet = transitive_set(
     args_projections = {
         "package_db": _project_as_package_db,
@@ -128,7 +122,6 @@ HaskellLibraryInfoTSet = transitive_set(
     },
     json_projections = {
         "dep_units": _json_as_dep_units,
-        "dep_units_static": _json_as_dep_units_static,
     },
 )
 

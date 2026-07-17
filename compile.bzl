@@ -338,9 +338,9 @@ def transitive_metadata(actions: AnalysisActions, pkgname: str, packages_info: P
     return dep_units_file
 
 # Static variant of the dependency unit list for the persistent worker's metadata calculation.
-def transitive_metadata_static(actions: AnalysisActions, pkgname: str, packages_info: PackagesInfo) -> cmd_args:
+def direct_metadata_static(actions: AnalysisActions, pkgname: str, libs: list[HaskellLibraryInfo]) -> cmd_args:
     dep_units_file = actions.declare_output("dep-units-static-{}.json".format(pkgname))
-    dep_units = packages_info.transitive_deps.project_as_json("dep_units_static", ordering = "postorder")
+    dep_units = [struct(name = lib.name, build_plan = lib.skeleton) for lib in libs]
     return cmd_args(
         actions.write_json(dep_units_file, dep_units, with_inputs = True, pretty = True),
         prepend = "--dep-units-static",
@@ -614,7 +614,7 @@ def _dynamic_target_metadata_impl(
         # Specifying this activates the new build plan logic
         bp_args.add("--build-plan", cmd_args(build_plan, ignore_artifacts = True))
         bp_args.add("--fields", "exposed_modules,module_graph,package_deps,th_modules,cache")
-        bp_args.add(transitive_metadata_static(actions, unit.name, packages_info))
+        bp_args.add(direct_metadata_static(actions, unit.name, arg.haskell_direct_deps_lib_infos))
         bp_args.add("--unit", unit.name)
         if munit.is_binary:
             bp_args.add("--unit-is-binary")
