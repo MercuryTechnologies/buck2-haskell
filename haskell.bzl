@@ -1091,7 +1091,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     nlis = attr_deps_merged_link_infos(ctx)
 
     link_infos = {}
-    hlib_infos: dict[LinkStyle, HaskellLibraryInfo] = {}
+    hlib_infos = {}
     hlink_infos = {}
     prof_hlib_infos = {}
     prof_hlink_infos = {}
@@ -1167,7 +1167,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             if not enable_profiling:
                 non_profiling_hlib[link_style] = hlib_build_out
 
-            hlib: HaskellLibraryInfo = hlib_build_out.hlib
+            hlib = hlib_build_out.hlib
             compiled = hlib_build_out.compiled
             libs = hlib_build_out.libs
 
@@ -1206,7 +1206,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         sub_targets["metadata"] = [DefaultInfo(default_output = def_md_file)]
 
     actual_link_style = _get_actual_link_style(ctx, preferred_linkage)
-    default_output = hlib_infos[actual_link_style].objects[ctx.attrs.enable_profiling]
+    default_output = hlib_infos[actual_link_style].libs
 
     haddock = haskell_haddock_lib(
         ctx,
