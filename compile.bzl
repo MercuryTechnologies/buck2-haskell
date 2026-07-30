@@ -1423,6 +1423,8 @@ def _compile_module(
                 category = "haskell_stubs",
                 identifier = "worker-dummy-stubdir-{}-{}".format(module_name, artifact_suffix),
                 local_only = True,
+                # FIXME(jadel): determine whether this is safe to upload to cache
+                allow_cache_upload = False,
             )
 
         dep_files = {
@@ -1823,6 +1825,8 @@ def _compile_non_incr(
             ),
         ),
         category = category,
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        allow_cache_upload = False,
         # We can't use no_outputs_cleanup because GHC's recompilation checking
         # is based on file timestamps, and Buck doesn't maintain timestamps when
         # artifacts may come from RE.
@@ -2100,6 +2104,8 @@ def compile(
         category = "haskell_stubs",
         identifier = artifact_suffix,
         local_only = True,
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        allow_cache_upload = False,
     )
 
     return CompileResultInfo(

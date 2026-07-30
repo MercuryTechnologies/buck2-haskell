@@ -163,6 +163,8 @@ def _toolchain_target_metadata_impl(
         md_args,
         category = "haskell_toolchain_library_metadata",
         identifier = libname,
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        allow_cache_upload = False,
     )
 
     return []
@@ -1229,6 +1231,8 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             hidden = [file.as_output() for file in styles],
         ),
         category = "haddock_styles",
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        allow_cache_upload = False,
     )
     sub_targets.update({
         "haddock": [DefaultInfo(

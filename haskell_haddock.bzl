@@ -99,6 +99,8 @@ def _haddock_dump_interface(
         category = "haskell_haddock",
         identifier = module_name,
         no_outputs_cleanup = True,
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        allow_cache_upload = False,
     )
     if make_copy:
         # XXX might as well use `symlink_file`` but that does not work with buck2 RE
@@ -262,6 +264,8 @@ def haskell_haddock_impl(ctx: AnalysisContext) -> list[Provider]:
         cmd_args(script, hidden=out.as_output()),
         category = "haskell_haddock",
         no_outputs_cleanup = True,
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        allow_cache_upload = False,
     )
 
     return [DefaultInfo(default_outputs = [out])]

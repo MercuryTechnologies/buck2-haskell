@@ -495,6 +495,8 @@ def _replace_macros_in_script_template(
             script_template.basename.replace("-", "_"),
         ),
         local_only = True,
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        allow_cache_upload = False,
     )
 
     return final_script
@@ -585,6 +587,8 @@ def _build_preload_deps_root(
                 link,
                 category = "haskell_ghci_link",
                 identifier = preload_so_name,
+                # FIXME(jadel): determine whether this is safe to upload to cache
+                allow_cache_upload = False,
             )
 
             preload_symlinks[preload_so_name] = preload_so
@@ -663,7 +667,8 @@ def _write_start_ghci(
         append_ghci_init.add(
             ["sh", "-c", 'cat "$1" "$2" > "$3"', "--", header_ghci, ctx.attrs.ghci_init, script_file.as_output()],
         )
-        ctx.actions.run(append_ghci_init, category = "append_ghci_init")
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        ctx.actions.run(append_ghci_init, category = "append_ghci_init", allow_cache_upload = False)
     else:
         ctx.actions.copy_file(script_file, header_ghci)
 
@@ -1018,7 +1023,8 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
             link_cmd.add(cmd_args(src_libfile, format = "-optl-Wl,-soname,{}"))
             link_cmd.add("-o", src_pkg_lib.as_output())
             link_cmd.add(dyn_objects)
-            ctx.actions.run(link_cmd, category = "haskell_ghci_src_link_simple")
+            # FIXME(jadel): determine whether this is safe to upload to cache
+            ctx.actions.run(link_cmd, category = "haskell_ghci_src_link_simple", allow_cache_upload = False)
 
         src_pkg_conf = ctx.actions.declare_output(
             "ghci-pkg-{}.conf".format(src_artifact_suffix),
@@ -1289,7 +1295,8 @@ def _write_global_start_ghci(
         append_ghci_init.add(
             ["sh", "-c", 'cat "$1" "$2" > "$3"', "--", header_ghci, ctx.attrs.ghci_init, script_file.as_output()],
         )
-        ctx.actions.run(append_ghci_init, category = "append_ghci_init")
+        # FIXME(jadel): determine whether this is safe to upload to cache
+        ctx.actions.run(append_ghci_init, category = "append_ghci_init", allow_cache_upload = False)
     else:
         ctx.actions.copy_file(script_file, header_ghci)
 
@@ -1513,6 +1520,8 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
             ),
             category = "compute_exposed_packages",
             local_only = True,
+            # FIXME(jadel): determine whether this is safe to upload to cache
+            allow_cache_upload = False,
         )
     else:
         lines = []
