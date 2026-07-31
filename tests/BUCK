@@ -1,5 +1,6 @@
 load("@buck2-haskell//:defs.bzl", "haskell_toolchain_library")
-load("@toolchains//ghci.bzl", "ghci")
+load("@toolchains//:ghci.bzl", "ghci")
+load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
 
 # We aren't going to ship a toolchain in this repo, so delegate to the user's
 # toolchain.
@@ -26,4 +27,9 @@ load("@toolchains//ghci.bzl", "ghci")
 ghci(
     name = "ghci_bin",
     visibility = ["buck2-haskell//tests/..."],
+)
+
+haskell_toolchain_all(
+    name = "all_haskell_toolchain_libs",
+    toolchain = "@toolchains//:haskell",
 )
