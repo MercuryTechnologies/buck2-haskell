@@ -7,9 +7,9 @@ load(
 
 # Exercises `compute_source_module_paths` case 3 (list srcs, no module_prefix)
 # in the strip_prefix-with-glob shape: srcs whose short_paths start with the
-# stripped directory (e.g. `src/Stripped/Lib.hs`). Verifies the strip prefix
-# reduces the in-tree path to `Stripped/Lib.hs` even though the package path is
-# not "". See `export_file_src` for the same case with a target src.
+# stripped directory (e.g. `src/Stripped/Lib.hs`). Verifies the package-
+# relative entry of the full strip-prefix list (`<pkg>/src`) wins over the
+# bare one and reduces the in-tree path to `Stripped/Lib.hs`.
 haskell_library(
     name = "lib",
     srcs = glob(["src/**/*.hs"]),

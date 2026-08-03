@@ -133,16 +133,12 @@ def compute_source_module_paths(
          //local-packages/foo/src/Acme/Foo/Bar that live at the module
          location (their package path IS the module path).
 
-      3. `sources` is a list and `module_prefix` is empty. Strip a matching
-         prefix from the artifact's `short_path`, mirroring how
-         `compile.bzl` derives module names in the same case. Do NOT join
-         the package path on first: a source file's `short_path` is already
-         package-relative, and a target src's (e.g. `export_file`) is the
-         `out` the declaring rule chose, which is the module path outright.
-         Joining the package would give a target src a
-         `<package>/<module path>` location that GHCi's `-i` search can
-         never resolve, so its modules go missing from every library whose
-         package path isn't "". See `tests/build_tests/export_file_src`.
+      3. `sources` is a list and `module_prefix` is empty. Fall back to
+         the strip-prefix logic: join with the package path to get a
+         cell-root path, then strip a matching prefix. This covers both
+         the simple sub-packages at //src/App/Foo (bare "src" prefix) and
+         top-level local-packages doing `glob(["src/**/*.hs"])` (package-
+         relative "<pkg>/src" prefix).
     """
     if type(sources) == type({}):
         full_strip = _full_strip_prefixes(package, strip_prefix)
@@ -160,8 +156,15 @@ def compute_source_module_paths(
             if is_haskell_src(src.short_path)
         ]
 
+    full_strip = _full_strip_prefixes(package, strip_prefix)
     return [
-        (strip_source_prefix(src.short_path, strip_prefix), src)
+        (
+            strip_source_prefix(
+                paths.join(package, src.short_path) if package else src.short_path,
+                full_strip,
+            ),
+            src,
+        )
         for src in sources
         if is_haskell_src(src.short_path)
     ]
