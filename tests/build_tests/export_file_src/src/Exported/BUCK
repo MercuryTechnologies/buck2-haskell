@@ -1,0 +1,9 @@
+# `Leaf.hs` is compiled into the parent package's library as a target src, not
+# by a library here. `out` is the module path, which is what the parent's
+# module tree and GHC's module name both have to agree on.
+export_file(
+    name = "leaf",
+    src = "Leaf.hs",
+    out = "Exported/Leaf.hs",
+    visibility = ["//tests/build_tests/export_file_src:"],
+)

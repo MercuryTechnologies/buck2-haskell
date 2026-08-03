@@ -1,0 +1,58 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_ghci_global",
+    "haskell_library",
+)
+
+# Regression coverage for `compute_source_module_paths` case 3 with a *target*
+# src: a library in a non-root package that pulls a module in via
+# `export_file` (mirroring //local-packages/mercury-banking, which does this
+# for modules that would otherwise form a cycle with their sub-package
+# library). A target src's `short_path` is the `out` its rule declared —
+# already the module path — so joining the package path onto it put
+# `Exported.Leaf` at `tests/build_tests/export_file_src/Exported/Leaf.hs` and
+# GHCi's -i search could not find it. `//:mwb` never hit this because the root
+# package path is "", which made the join a no-op.
+haskell_library(
+    name = "lib",
+    srcs = [
+        "src/Root.hs",
+        "//tests/build_tests/export_file_src/src/Exported:leaf",
+    ],
+    strip_prefix = ["src"],
+    deps = ["//tests:base"],
+    visibility = ["//tests/..."],
+    allow_worker = False,
+)
+
+haskell_binary(
+    name = "bin",
+    srcs = ["Main.hs"],
+    link_style = "static",
+    deps = [
+        ":lib",
+        "//tests:base",
+    ],
+    allow_worker = False,
+)
+
+sh_test(
+    name = "test_bin",
+    test = ":bin",
+)
+
+# `haskell_ghci_global`, not `haskell_ghci`: only the global rule loads its deps
+# as interpreted source, so only it builds the `HaskellSourceInfo` module tree
+# this test is about.
+haskell_ghci_global(
+    name = "ghci",
+    ghci_bin_dep = "//tests:ghci_bin",
+    deps = [":lib"],
+)
+
+sh_test(
+    name = "test_ghci",
+    test = "test_ghci.sh",
+    labels = ["buck2_run_from_project_root"],
+)
