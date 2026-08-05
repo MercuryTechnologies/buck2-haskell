@@ -2177,9 +2177,18 @@ def haskell_test_impl(ctx: AnalysisContext) -> list[Provider]:
         test_env.update(ctx.attrs.env)
 
     # Setup RE executors based on the `remote_execution` param.
-    re_executor, executor_overrides = get_re_executors_from_props(ctx)
+    re_config = get_re_executors_from_props(ctx)
 
-    run_from_project_root = "buck2_run_from_project_root" in (ctx.attrs.labels or []) or re_executor != None
+    # The return type changed upstream, so we need to polyfill a back-compatible shim here.
+    #
+    # TODO: Remove this block once the buck2 version is >=2026-07-31.
+    if type(re_config) != "record":
+        re_config = struct(
+            default_executor = re_config[0],
+            executor_overrides = re_config[1],
+        )
+
+    run_from_project_root = "buck2_run_from_project_root" in (ctx.attrs.labels or []) or re_config.default_executor != None
 
     # Add test execution info using the inject_test_run_info function
     providers = [
@@ -2192,10 +2201,10 @@ def haskell_test_impl(ctx: AnalysisContext) -> list[Provider]:
             env = test_env,
             labels = ctx.attrs.labels,
             contacts = ctx.attrs.contacts,
-            default_executor = re_executor,
-            executor_overrides = executor_overrides,
+            default_executor = re_config.default_executor,
+            executor_overrides = re_config.executor_overrides,
             run_from_project_root = run_from_project_root,
-            use_project_relative_paths = re_executor != None,
+            use_project_relative_paths = re_config.default_executor != None,
         ),
     )
 
