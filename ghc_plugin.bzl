@@ -50,10 +50,7 @@ def ghc_plugin_impl(ctx: AnalysisContext) -> list[Provider]:
             toolchain_dep_names.append(dep[HaskellToolchainLibrary].name)
         else:
             fail(
-                "ghc_plugin '{}': dependency '{}' does not provide " +
-                "HaskellLibraryProvider or HaskellToolchainLibrary. " +
-                "Plugin deps must be haskell_library or " +
-                "haskell_toolchain_library targets.".format(
+                "ghc_plugin '{}': dependency '{}' does not provide HaskellLibraryProvider or HaskellToolchainLibrary. Plugin deps must be haskell_library or haskell_toolchain_library targets.".format(
                     ctx.label.name,
                     dep.label,
                 ),
