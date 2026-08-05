@@ -10,6 +10,10 @@ GHC compiler plugin support for buck2-haskell.
 """
 
 load(
+    "@prelude//linking:link_info.bzl",
+    "LinkStyle",
+)
+load(
     ":library_info.bzl",
     "HaskellLibraryProvider",
 )
@@ -20,10 +24,6 @@ load(
 load(
     ":toolchain.bzl",
     "HaskellToolchainLibrary",
-)
-load(
-    "@prelude//linking:link_info.bzl",
-    "LinkStyle",
 )
 
 # Provider carrying GHC plugin metadata.
@@ -109,11 +109,13 @@ def get_plugin_flags(ctx, link_style, plugin_info = None) -> cmd_args:
 
 def _add_plugin_flags(args, info, link_style):
     """Add GHC flags for a single plugin to the given cmd_args."""
+
     # Handle regular haskell_library deps.
     for dep in info.deps:
         lib_provider = dep[HaskellLibraryProvider]
         lib_info = lib_provider.lib[link_style]
         args.add("-plugin-package", lib_info.id)
+
         # GHC needs to load the plugin module's .hi files at startup when
         # -fplugin is used. Declare them as hidden inputs so Buck2
         # materializes them before the compile action runs.
@@ -121,6 +123,7 @@ def _add_plugin_flags(args, info, link_style):
             args.add(cmd_args(hidden = ifaces))
         for profiling_enabled, objs in lib_info.objects.items():
             args.add(cmd_args(hidden = objs))
+
         # Register package DBs and libs for this dep AND all its transitive
         # deps. GHC needs all transitive deps available to satisfy the plugin
         # package's dependency chain.
@@ -129,6 +132,7 @@ def _add_plugin_flags(args, info, link_style):
             tset = link_info.info[link_style]
             args.add(cmd_args(tset.project_as_args("package_db"), prepend = "-package-db"))
             args.add(cmd_args(hidden = tset.project_as_args("libs")))
+
             # GHC loads plugins dynamically regardless of the consumer's link
             # style. Ensure shared libs are materialized for all transitive
             # deps.
@@ -143,6 +147,7 @@ def _add_plugin_flags(args, info, link_style):
                 shared_lib_info = lib_provider.lib.get(LinkStyle("shared"))
                 if shared_lib_info:
                     args.add(cmd_args(hidden = shared_lib_info.libs))
+
     # Handle haskell_toolchain_library deps. Their package DBs are registered
     # by the compilation flow; we only need to tell GHC to use the package as
     # a plugin.
@@ -231,4 +236,3 @@ def validate_plugins_attrs(ctx: AnalysisContext):
             "different plugin flags per module. Use 'plugins' for global plugin " +
             "support or set 'incremental = True'.".format(ctx.label),
         )
-
