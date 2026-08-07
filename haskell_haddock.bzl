@@ -17,6 +17,7 @@ load(
     ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_link_infos",
+    "md_module_mapping",
     "src_to_module_name",
 )
 
@@ -115,7 +116,7 @@ def _haddock_dump_interface(
 
 def _dynamic_haddock_dump_interfaces_impl(actions, md_file, dynamic_info_lib, outputs, arg):
     md = md_file.read_json()
-    module_map = md["module_mapping"]
+    module_map = md_module_mapping(md)
     graph = md["module_graph"]
     package_deps = md["package_deps"]
 

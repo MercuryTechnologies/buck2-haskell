@@ -296,6 +296,19 @@ def _source_prefix(source: Artifact, module_name: str) -> str:
 
     return ""
 
+def md_module_mapping(md) -> dict[str, str]:
+    """The mapping from source-path-derived module names to declared module names."""
+    mapping = md.get("module_mapping")
+    if mapping != None:
+        return mapping
+    # Worker-provided metadata does not have module_mapping populated, but we can calculate it here
+    mapping = {}
+    for modname, entry in (md.get("cache") or {}).items():
+        apparent = src_to_module_name(entry["source"])
+        if apparent != modname:
+            mapping[apparent] = modname
+    return mapping
+
 def get_source_prefixes(srcs: list[Artifact], module_map: dict[str, str]) -> list[str]:
     """Determine source prefixes for the given haskell files and a mapping from source file module name to module name."""
     source_prefixes = {}

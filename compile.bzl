@@ -58,6 +58,7 @@ load(
     "is_haskell_boot",
     "is_haskell_src",
     "make_haskell_names_from_label",
+    "md_module_mapping",
     "output_extensions",
     "src_to_module_name",
     "srcs_to_pairs",
@@ -516,18 +517,6 @@ def _dynamic_target_metadata_impl(
 
     (ghc_args, buck2_args) = metadata_unit_args(actions, munit, packages_info, output)
 
-    md_args = cmd_args()
-
-    md_args.add("--ghc", haskell_toolchain.compiler)
-
-    md_args.add(cmd_args(ghc_args, format = "--ghc-arg={}"))
-
-    md_args.add(cmd_args(arg.sources, format = "--source={}"))
-
-    md_args.add("--source-prefix", arg.strip_prefix)
-
-    md_args.add("--output", output)
-
     buck_args_file = argfile(
         actions = actions,
         name = "haskell_metadata_buck2_{}.args".format(unit.name),
@@ -535,15 +524,11 @@ def _dynamic_target_metadata_impl(
         allow_args = True,
     )
 
-    md_args.add(buck2_args)
-    md_args.add("--unit-buck-args", buck_args_file)
-
     if is_worker_execute:
-        build_plan = actions.declare_output(unit.name + ".depends.json")
         makefile = actions.declare_output(unit.name + ".depends.make")
 
         ghc_args.add("-include-pkg-deps")
-        ghc_args.add("-dep-json", cmd_args(build_plan, ignore_artifacts = True))
+        ghc_args.add("-dep-json", cmd_args(output, ignore_artifacts = True))
         ghc_args.add("-dep-makefile", cmd_args(makefile, ignore_artifacts = True))
         ghc_args.add(cmd_args(arg.sources))
 
@@ -553,52 +538,68 @@ def _dynamic_target_metadata_impl(
         args = ghc_args,
         allow_args = True,
     )
-    md_args.add("--unit-args", ghc_args_file)
 
     if is_worker_execute:
-        bp_args = cmd_args()
-        bp_args.add("-M")
-        bp_args.add("--ghc-dir", haskell_toolchain.ghc_dir)
-        add_worker_args(haskell_toolchain, bp_args, unit.name)
+        md_args = cmd_args()
+        md_args.add("-M")
+        md_args.add("--ghc-dir", haskell_toolchain.ghc_dir)
+        add_worker_args(haskell_toolchain, md_args, unit.name)
 
-        bp_args.add(buck2_args)
+        md_args.add(buck2_args)
 
         # Specifying this activates the new build plan logic
-        bp_args.add("--build-plan", cmd_args(build_plan, ignore_artifacts = True))
-        bp_args.add("--fields", "exposed_modules,module_graph,package_deps,th_modules,cache")
-        bp_args.add(direct_metadata_static(actions, unit.name, arg.haskell_direct_deps_lib_infos))
-        bp_args.add("--unit", unit.name)
+        md_args.add("--build-plan", cmd_args(output, ignore_artifacts = True))
+        md_args.add("--fields", "exposed_modules,module_graph,package_deps,th_modules,cache")
+        md_args.add(direct_metadata_static(actions, unit.name, arg.haskell_direct_deps_lib_infos))
+        md_args.add("--unit", unit.name)
         if munit.is_binary:
-            bp_args.add("--unit-is-binary")
-        bp_args.add(cmd_args(ghc_args_file, prepend = "--ghc-args", hidden = [build_plan.as_output(), makefile.as_output()]))
+            md_args.add("--unit-is-binary")
+        md_args.add("--unit-buck-args-path", buck_args_file)
+        md_args.add("--dep-units-path", transitive_metadata(actions, unit.name, packages_info))
+        md_args.add(cmd_args(ghc_args_file, prepend = "--ghc-args", hidden = [output, makefile.as_output()]))
 
         actions.run(
-            bp_args,
-            category = "haskell_buildplan",
+            md_args,
+            category = "haskell_metadata",
             identifier = arg.suffix if arg.suffix else None,
             exe = WorkerRunInfo(worker = arg.worker),
             allow_cache_upload = arg.allow_cache_upload,
         )
-        md_args.add("--dep-units", transitive_metadata(actions, unit.name, packages_info))
-        md_args.add("--build-plan", build_plan)
     else:
+        md_args = cmd_args()
+
+        md_args.add("--ghc", haskell_toolchain.compiler)
+
+        md_args.add(cmd_args(ghc_args, format = "--ghc-arg={}"))
+
+        md_args.add(cmd_args(arg.sources, format = "--source={}"))
+
+        md_args.add("--source-prefix", arg.strip_prefix)
+
+        md_args.add("--output", output)
+
+        md_args.add(buck2_args)
+        md_args.add("--unit-buck-args", buck_args_file)
+
+        md_args.add("--unit-args", ghc_args_file)
+
         # We won't need to look at the ghc argsfile later, but the user might!
         md_args.add("--use-ghc-args-file-at", actions.declare_output("ghc-args").as_output())
 
-    md_args_outer = cmd_args(arg.md_gen)
-    md_args_outer.add(at_argfile(
-        actions = actions,
-        name = "dynamic_target_metadata_args",
-        args = md_args,
-        allow_args = True,
-    ))
+        md_args_outer = cmd_args(arg.md_gen)
+        md_args_outer.add(at_argfile(
+            actions = actions,
+            name = "dynamic_target_metadata_args",
+            args = md_args,
+            allow_args = True,
+        ))
 
-    actions.run(
-        md_args_outer,
-        category = "haskell_metadata",
-        identifier = arg.suffix if arg.suffix else None,
-        allow_cache_upload = arg.allow_cache_upload,
-    )
+        actions.run(
+            md_args_outer,
+            category = "haskell_metadata",
+            identifier = arg.suffix if arg.suffix else None,
+            allow_cache_upload = arg.allow_cache_upload,
+        )
 
     return []
 
@@ -1800,7 +1801,7 @@ def _dynamic_do_compile_impl(
     # See `./tools/generate_target_metadata.py` for schema information.
     md = md_file.read_json()
     th_modules = md["th_modules"]
-    module_map = md["module_mapping"]
+    module_map = md_module_mapping(md)
     module_graph = md["module_graph"]
     package_deps = md["package_deps"]
 

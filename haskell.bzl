@@ -117,6 +117,7 @@ load(
     "get_artifact_suffix",
     "get_source_prefixes",
     "make_haskell_names_from_label",
+    "md_module_mapping",
     "output_extensions",
     "src_to_module_name",
 )
@@ -397,7 +398,7 @@ def _write_package_conf_impl(
         libname: str | None,
         arg: _WritePackageConfOptions) -> list[Provider]:
     md = md_file.read_json()
-    module_map = md["module_mapping"]
+    module_map = md_module_mapping(md)
 
     source_prefixes = get_source_prefixes(arg.srcs, module_map)
     source_prefixes_excluded = [prefix for prefix in source_prefixes if prefix not in arg.strip_prefix]
