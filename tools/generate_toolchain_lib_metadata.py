@@ -91,7 +91,7 @@ def determine_exposed_modules(ghc_pkg, package_name, pkgdb):
 
 
 def run_ghc_pkg(ghc_pkg, cmd, pkgdb=None, args=[]):
-    outer_args = [ghc_pkg, cmd] + args
+    outer_args = [ghc_pkg, "--no-user-package-db", cmd] + args
     if pkgdb:
         outer_args += [f"--package-db={pkgdb}"]
 
