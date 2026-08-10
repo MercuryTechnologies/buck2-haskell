@@ -164,8 +164,7 @@ def _toolchain_target_metadata_impl(
         md_args,
         category = "haskell_toolchain_library_metadata",
         identifier = libname,
-        # FIXME(jadel): determine whether this is safe to upload to cache
-        allow_cache_upload = False,
+        allow_cache_upload = True,
     )
 
     return []
