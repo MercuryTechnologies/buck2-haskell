@@ -704,19 +704,22 @@ _ghci_resolve_toolchain_pkgs = dynamic_actions(
 # creating a symlinked directory that points to each package's out.link dir.
 # This is needed for haskell_ghci_global where no Haskell compilation step runs
 # (so the packages would otherwise never be built/downloaded locally).
+#
+# This forces every package the toolchain has, which in practice is often fine
+# because haskell_ghci_global is global.
+# If forcing the whole toolchain ever costs too much, a valid alternative is
+# forcing the named libs and their transitive closure.
 def _ghci_force_toolchain_pkgs_impl(
         actions: AnalysisActions,
         pkg_deps: ResolvedDynamicValue,
-        pkgdbs_dir: OutputArtifact,
-        arg) -> list[Provider]:
+        pkgdbs_dir: OutputArtifact) -> list[Provider]:
     toolchain_package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
 
     pkg_symlinks = {}
-    for name in arg.toolchain_libs:
-        if name in toolchain_package_db:
-            pkg = toolchain_package_db[name].reduce("toolchain_root")
-            if pkg != None:
-                pkg_symlinks[name] = pkg.path
+    for name, pkg_tset in toolchain_package_db.items():
+        pkg = pkg_tset.reduce("toolchain_root")
+        if pkg != None:
+            pkg_symlinks[name] = pkg.path
 
     actions.symlinked_dir(pkgdbs_dir, pkg_symlinks)
     return []
@@ -726,7 +729,6 @@ _ghci_force_toolchain_pkgs = dynamic_actions(
     attrs = {
         "pkg_deps": dynattrs.dynamic_value(),
         "pkgdbs_dir": dynattrs.output(),
-        "arg": dynattrs.value(typing.Any),
     },
 )
 
@@ -1466,7 +1468,6 @@ def haskell_ghci_global_impl(ctx: AnalysisContext) -> list[Provider]:
         ctx.actions.dynamic_output_new(_ghci_force_toolchain_pkgs(
             pkg_deps = haskell_toolchain.packages.dynamic,
             pkgdbs_dir = toolchain_pkgdbs_forced.as_output(),
-            arg = struct(toolchain_libs = all_toolchain_libs),
         ))
     else:
         ctx.actions.write(toolchain_pkg_args_file.as_output(), "")
