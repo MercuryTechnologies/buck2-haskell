@@ -1440,9 +1440,8 @@ def _dynamic_link_binary_impl(
     # packages)
     if arg.link_haskell_objects_at_once:  # when link_haskell_objects_at_once = True
         for hlib in lib_tset.traverse():
-            # These empty package-db files are included to ensure all the extra deps.
-            # Not directly used for the linking.
-            link_cmd_hidden.append(hlib.empty_db)
+            packagedb_args.add(cmd_args(hlib.empty_db))
+            package_args.add(hlib.name)
 
             # Add all the transitive objects except for those in link group.
             # for now, only non-profiled binary
@@ -1451,16 +1450,14 @@ def _dynamic_link_binary_impl(
                 object_args.add(hlib.objects[is_profiled])
 
     else:  # when link_haskell_objects_at_once = False
-        for hlib in lib_tset.traverse():
-            if hlib.name in all_link_group_ids:
-                # These empty package-db files are included to ensure all the extra deps.
-                # Not directly used for the linking.
-                link_cmd_hidden.append(hlib.empty_db)
-            if hlib.name not in all_link_group_ids:
-                packagedb_args.add(cmd_args(hlib.db))
-                link_cmd_hidden.append(hlib.libs)
+        for d in lib_tset.traverse():
+            if d.name in all_link_group_ids:
+                packagedb_args.add(cmd_args(d.empty_db))
+            else:
+                packagedb_args.add(cmd_args(d.db))
+                link_cmd_hidden.append(d.libs)
         for item in arg.haskell_direct_deps_lib_infos:
-            if item.id not in all_link_group_ids:
+            if not item.id in all_link_group_ids:
                 package_args.add(item.name)
                 link_cmd_hidden.append(item.libs)
 
