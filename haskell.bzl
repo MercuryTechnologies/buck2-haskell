@@ -1212,7 +1212,9 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         ctx,
         pkgname,
         non_profiling_hlib[LinkStyle("shared")].compiled,
-        md_file,
+        # Use the shared, non-profiling metadata (build plan) to match the
+        # shared compiled info passed above.
+        def_md_file,
     )
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
