@@ -109,6 +109,26 @@ def _get_toolchain_packages(
         flatted.extend(lib.toolchain_dependencies)
     return dedupe_by_value(flatted)
 
+def _get_extra_lib_infos(
+        children: list[ExtraLibraryInfo],
+        lib: HaskellLibraryInfo | None) -> ExtraLibraryInfo:
+     as_deps = []
+     extra_libs = []
+     extra_lib_dyns = []
+     if lib:
+         as_deps.extend(lib.extra_libraries.as_deps)
+         extra_libs.extend(lib.extra_libraries.extra_libs)
+         extra_lib_dyns.extend(lib.extra_libraries.extra_lib_dyns)
+     for x in children:
+         as_deps.extend(x.as_deps)
+         extra_libs.extend(x.extra_libs)
+         extra_lib_dyns.extend(x.extra_lib_dyns)
+     return ExtraLibraryInfo(
+         as_deps = dedupe_by_value(as_deps),
+         extra_libs = dedupe_by_value(extra_libs),
+         extra_lib_dyns = dedupe_by_value(extra_lib_dyns),
+     )
+
 def _json_as_dep_units(lib: HaskellLibraryInfo) -> struct:
     return struct(
         name = lib.name,
@@ -125,6 +145,7 @@ HaskellLibraryInfoTSet = transitive_set(
     reductions = {
         "packages": _get_package_deps,
         "toolchain_packages": _get_toolchain_packages,
+        "extra_libs": _get_extra_lib_infos,
     },
     json_projections = {
         "dep_units": _json_as_dep_units,
