@@ -18,6 +18,7 @@ load(
     "@prelude//linking:link_info.bzl",
     "LinkStyle",
     "MergedLinkInfo",
+    "SharedLibLinkable",
     "get_link_args_for_strategy",
     "to_link_strategy",
     "unpack_link_args",
@@ -32,6 +33,7 @@ load(
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
+    "get_libname",
 )
 load(
     ":link_info.bzl",
@@ -39,6 +41,7 @@ load(
     "HaskellLinkGroupInfo",
     "HaskellLinkGroupProvider",
     "HaskellLinkInfo",
+    "get_link_infos_from_extra_lib_info",
 )
 load(
     ":toolchain.bzl",
@@ -140,6 +143,7 @@ PackagesInfo = record(
     exposed_package_args = cmd_args,
     packagedb_args = cmd_args,
     local_packagedb_args = cmd_args,
+    extra_libs_args = cmd_args,
     transitive_deps = field(HaskellLibraryInfoTSet),
 )
 
@@ -185,6 +189,7 @@ _DynamicDoCompileOptions = record(
     external_tool_paths = list[RunInfo],
     ghc_wrapper = RunInfo,
     haskell_toolchain = HaskellToolchainInfo,
+    linker_info = typing.Any,
     label = Label,
     link_style = LinkStyle,
     link_args = ArgLike,
@@ -466,6 +471,7 @@ def metadata_unit_args(
     ghc_args.add(cmd_args(packages_info.packagedb_args, prepend = "-package-db"))
     ghc_args.add("-fprefer-byte-code")
     ghc_args.add("-fpackage-db-byte-code")
+    ghc_args.add(packages_info.extra_libs_args)
 
     buck2_args = unit_buck2_args(actions, arg.unit)
 
@@ -482,8 +488,9 @@ MetadataParams = record(
     worker = field(None | WorkerInfo),
     allow_worker = field(bool),
     allow_cache_upload = field(bool),
-    label = field(Label | None),
+    label = field(Label),
     incremental = field(bool),
+    linker_info = field(typing.Any),
 )
 
 def _dynamic_target_metadata_impl(
@@ -503,9 +510,11 @@ def _dynamic_target_metadata_impl(
 
     packages_info = get_packages_info(
         actions,
+        arg.label,
         munit.deps,
         arg.direct_deps_link_info,
         haskell_toolchain,
+        arg.linker_info,
         arg.haskell_direct_deps_lib_infos,
         unit.link_style,
         specify_pkg_version = False,
@@ -637,6 +646,8 @@ def target_metadata(
         (pkgname, libname) = make_haskell_names_from_label(ctx.label, False)
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
+    linker_info = get_cxx_toolchain_info(ctx).linker_info
+
     allow_worker = ctx.attrs.allow_worker
     is_worker_execute = check_is_worker_execute(worker, allow_worker, haskell_toolchain.use_worker)
 
@@ -688,6 +699,7 @@ def target_metadata(
             allow_cache_upload = ctx.attrs.allow_cache_upload,
             label = ctx.label,
             incremental = ctx.attrs.incremental,
+            linker_info = linker_info,
         ),
     ))
 
@@ -745,9 +757,11 @@ def get_extra_lib_info(
 
 def get_packages_info(
         actions: AnalysisActions,
+        label: Label,
         deps: list[Dependency],
         direct_deps_link_info: list[HaskellLinkInfo],
         haskell_toolchain: HaskellToolchainInfo,
+        linker_info: typing.Any,
         haskell_direct_deps_lib_infos: list[HaskellLibraryInfo],
         link_style: LinkStyle,
         specify_pkg_version: bool,
@@ -790,6 +804,17 @@ def get_packages_info(
             ])
             exposed_package_args.add(hidden_args)
 
+    extra_libs_args = cmd_args()
+    extra_lib_info = libs.reduce("extra_libs")
+    link_infos = get_link_infos_from_extra_lib_info(actions, label, linker_info, link_style, extra_lib_info)
+    for link_info in link_infos:
+        for linkable in link_info.linkables:
+            if isinstance(linkable, SharedLibLinkable):
+                extra_libs_args.add(cmd_args(linkable.lib, format = "-L{}", parent = 1))
+                extra_libs_args.add(cmd_args(get_libname(linkable), format = "-l{}"))
+            else:
+                fail("Unimplemented linkable: {}".format(linkable))
+
     if pkg_deps:
         toolchain_package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
     else:
@@ -828,6 +853,7 @@ def get_packages_info(
         exposed_package_args = exposed_package_args,
         local_packagedb_args = local_packagedb_args,
         packagedb_args = packagedb_args,
+        extra_libs_args = extra_libs_args,
         transitive_deps = libs,
     )
 
@@ -1565,7 +1591,9 @@ def _compile_incr(
 
 def compile_args_for_non_incr(
         actions: AnalysisActions,
+        label: Label,
         haskell_toolchain: HaskellToolchainInfo,
+        linker_info: typing.Any,
         md_file: Artifact,
         compiler_flags: list[typing.Any],  # Arguments.
         main: str | None,
@@ -1637,9 +1665,11 @@ def compile_args_for_non_incr(
     # library dependency.
     packages_info = get_packages_info(
         actions,
+        label,
         deps,
         direct_deps_link_info,
         haskell_toolchain,
+        linker_info,
         haskell_direct_deps_lib_infos,
         LinkStyle("shared"),
         specify_pkg_version = False,
@@ -1744,7 +1774,9 @@ def _compile_non_incr(
     args.add(
         compile_args_for_non_incr(
             actions,
+            arg.label,
             haskell_toolchain = haskell_toolchain,
+            linker_info = arg.linker_info,
             md_file = arg.md_file,
             compiler_flags = arg.compiler_flags,
             main = arg.main,
@@ -1933,6 +1965,8 @@ def compile(
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
+    linker_info = get_cxx_toolchain_info(ctx).linker_info
+
     is_worker_execute = check_is_worker_execute(worker, ctx.attrs.allow_worker, haskell_toolchain.use_worker)
 
     modules = _modules_by_name(
@@ -2024,6 +2058,7 @@ def compile(
             external_tool_paths = [tool[RunInfo] for tool in ctx.attrs.external_tools] + extra_tool_paths,
             ghc_wrapper = ctx.attrs._ghc_wrapper[RunInfo],
             haskell_toolchain = haskell_toolchain,
+            linker_info = linker_info,
             label = ctx.label,
             link_style = link_style,
             link_args = link_args,
