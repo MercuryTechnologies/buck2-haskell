@@ -1194,7 +1194,12 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
                         compiled = compiled,
                         link_style = link_style,
                         enable_profiling = enable_profiling,
-                    ) | dict(metadata = [DefaultInfo(default_output = md_file)]),
+                    ) | dict(
+                        metadata = [DefaultInfo(default_output = md_file)],
+                        db = [DefaultInfo(default_output = hlib.db)],
+                        empty_db = [DefaultInfo(default_output = hlib.empty_db)],
+                        deps_db = [DefaultInfo(default_output = hlib.deps_db)],
+                    ),
                 )]
 
     # By default, [metadata] = [shared][metadata].
