@@ -42,6 +42,10 @@ HaskellLinkGroupInfo = record(
     lib = Artifact,
     # Component libraries
     libraries = list[HaskellLibraryInfo],
+    # Package names of the groups nested under this one. This group's package
+    # conf `depends` on them, so a consumer that links this group must link
+    # these too, or GHC treats this group as unusable.
+    nested_pkgnames = list[str],
 )
 
 # Provider for HaskellLinkGroup information

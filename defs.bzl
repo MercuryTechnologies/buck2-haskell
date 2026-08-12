@@ -468,6 +468,20 @@ haskell_library = rule(
         native_common.preferred_linkage(preferred_linkage_type = attrs.enum(Linkage.values())) |
         {
             "contacts": attrs.list(attrs.string(), default = []),
+            "create_link_group": attrs.bool(default = False, doc = """
+    Also build a link group for this library: a single pre-linked .so covering
+    this library and its entire transitive closure. Binaries that reach this
+    library, at any depth, link that .so instead of relinking the closure's
+    objects, so an edit outside the closure only relinks what is outside it.
+
+    Consumers need no change: the library advertises the group itself, and
+    groups compose, so a group over a library that depends on another flagged
+    library holds only the difference between them.
+
+    Only worth setting on a large and *stable* library. The group relinks
+    whenever anything in its closure changes, so flagging a library under
+    active development makes every downstream binary pay for that relink.
+"""),
             "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
             "enable_profiling": attrs.bool(default = False),
             "ghci_platform_preload_deps": attrs.list(attrs.tuple(attrs.regex(), attrs.set(attrs.dep(), sorted = True)), default = []),

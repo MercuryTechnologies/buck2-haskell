@@ -1077,6 +1077,71 @@ def _get_actual_link_style(ctx: AnalysisContext, preferred_linkage: Linkage) -> 
 
     return actual_link_style
 
+def _haskell_library_link_group_providers(
+        ctx: AnalysisContext,
+        hlib_infos: dict[LinkStyle, HaskellLibraryInfo],
+        haskell_toolchain: HaskellToolchainInfo) -> list[Provider]:
+    """Link group providers for a library: its own group, plus its deps' groups.
+
+    A library builds its own group here rather than in a separate `post_<name>`
+    target because a separate target has to depend on the library, so the
+    library could never depend back on it to advertise it -- which is why every
+    consumer used to have to name the group itself.
+
+    Every library, flagged or not, republishes the groups of its deps, so a
+    group reaches binaries at any depth instead of only targets that depend on
+    its owner directly. That is also what makes groups nest automatically:
+    `make_haskell_link_group` excludes libraries a dep's group already owns.
+    """
+    link_styles = [
+        legacy_output_style_to_link_style(output_style)
+        for output_style in get_output_styles_for_linkage(_attr_preferred_linkage(ctx))
+    ]
+
+    if not ctx.attrs.create_link_group:
+        lg_tsets = {}
+        for link_style in link_styles:
+            children = attr_deps_haskell_link_group_tsets(ctx, link_style)
+            if children:
+                lg_tsets[link_style] = ctx.actions.tset(HaskellLinkGroupTSet, children = children)
+        return [HaskellLinkGroupTSetProvider(link_group_tsets = lg_tsets)] if lg_tsets else []
+
+    # Components are this library plus its whole transitive closure, minus what
+    # a nested group already owns.
+    hlibs_dict = {}
+    for link_style in link_styles:
+        nested = {}
+        for tset in attr_deps_haskell_link_group_tsets(ctx, link_style):
+            for group in tset.traverse():
+                for lib in group.libraries:
+                    nested[lib.name] = None
+        tset = ctx.actions.tset(
+            HaskellLibraryInfoTSet,
+            value = hlib_infos[link_style],
+            children = [lib.info[link_style] for lib in attr_deps_haskell_link_infos_sans_template_deps(ctx)],
+        )
+        for x in tset.traverse():
+            if x.name in nested:
+                continue
+            if hlibs_dict.get(x.name):
+                hlibs_dict[x.name].lib[link_style] = x
+            else:
+                hlibs_dict[x.name] = HaskellLibraryProvider(lib = {link_style: x})
+
+    return make_haskell_link_group(
+        ctx,
+        label = ctx.label,
+        hlibs = hlibs_dict.values(),
+        registerer = ctx.attrs._ghc_pkg_registerer[RunInfo],
+        haskell_toolchain = haskell_toolchain,
+        linker_info = get_cxx_toolchain_info(ctx).linker_info,
+        allow_cache_upload = ctx.attrs.allow_cache_upload,
+        self_infos = hlib_infos,
+        output_prefix = "link-group-",
+        name_suffix = "-link-group",
+        default_info = False,
+    )
+
 def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     sources = ctx.attrs.srcs
     if not sources:
@@ -1265,6 +1330,8 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         haddock,
     ]
 
+    providers.extend(_haskell_library_link_group_providers(ctx, hlib_infos, haskell_toolchain))
+
     if indexing_tsets:
         providers.append(HaskellIndexInfo(info = indexing_tsets))
 
@@ -1378,10 +1445,61 @@ _DynamicLinkBinaryOptions = record(
     link_haskell_objects_at_once = bool,
     linker_flags = list[typing.Any],  # Arguments.
     direct_deps_info = list[HaskellLibraryInfoTSet],
-    link_group_libs = list[HaskellLinkGroupInfo],
     toolchain_libs = list[str],
     allow_cache_upload = bool,
 )
+
+def select_disjoint_link_groups(lg_tsets: list[HaskellLinkGroupTSet]) -> (list[HaskellLinkGroupInfo], dict[str, None]):
+    """Pick the link groups to link against, dropping any that overlap a better pick.
+
+    Link groups reach a binary automatically, so nothing stops two of them from
+    overlapping: groups over two libraries that don't depend on each other but
+    share a sub-closure each contain a copy of it. Nesting only removes overlap
+    along dependency edges. Linking both would put the shared code in the binary
+    twice, so keep a disjoint subset; a dropped group's libraries just link their
+    objects directly, exactly as if they had no group.
+
+    A group is taken together with the groups nested under it, since its package
+    conf `depends` on them. Overlap has to be judged per group, not per tset
+    root: one dep can republish two unrelated flagged libraries' groups, so two
+    overlapping groups often arrive inside the same root.
+
+    Returns the chosen groups and the set of library names they cover.
+    """
+    by_pkgname = {}
+    for tset in lg_tsets:
+        for group in tset.traverse():
+            by_pkgname[group.pkgname] = group
+
+    # Widest coverage wins; the pkgname tiebreak keeps the result independent of
+    # dep order, so the link command is stable across unrelated edits.
+    ordered = sorted(by_pkgname.values(), key = lambda g: (-len(g.libraries), g.pkgname))
+
+    chosen = {}
+    covered = {}
+    for group in ordered:
+        if group.pkgname in chosen:
+            continue
+
+        # The group and everything nested under it stand or fall together.
+        # nested_pkgnames is already transitive, so this needs no traversal.
+        bundle = {group.pkgname: group}
+        for pkgname in group.nested_pkgnames:
+            if pkgname in by_pkgname:
+                bundle[pkgname] = by_pkgname[pkgname]
+
+        components = {
+            lib.name: None
+            for member in bundle.values()
+            for lib in member.libraries
+        }
+        if [name for name in components if name in covered]:
+            continue
+
+        chosen.update(bundle)
+        covered.update(components)
+
+    return (chosen.values(), covered)
 
 def _dynamic_link_binary_impl(
         actions: AnalysisActions,
@@ -1401,7 +1519,7 @@ def _dynamic_link_binary_impl(
         children = arg.direct_deps_lg_tsets,
     )
 
-    all_link_group_ids = link_group_tset.reduce("components")
+    link_groups, all_link_group_ids = select_disjoint_link_groups(arg.direct_deps_lg_tsets)
 
     lib_tset = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
 
@@ -1427,9 +1545,11 @@ def _dynamic_link_binary_impl(
     # link group
     # NOTE: link group for executable is currently only relevant to LinkStyle("shared")
     # NOTE: link group is not affected by link_haskell_objects_at_once.
-    for lg in arg.link_group_libs:
+    # Walks the selected groups rather than the direct deps, so that a group
+    # nested under another group (a domain group built on a base group) is
+    # linked too, and an overlapping group is left out.
+    for lg in link_groups:
         packagedb_args.add(cmd_args(lg.db))
-    for lg in arg.link_group_libs:
         package_args.add(lg.pkgname)
         link_cmd_hidden.append(lg.lib)
 
@@ -1440,13 +1560,21 @@ def _dynamic_link_binary_impl(
     if arg.link_haskell_objects_at_once:  # when link_haskell_objects_at_once = True
         for hlib in lib_tset.traverse():
             packagedb_args.add(cmd_args(hlib.empty_db))
+
+            # A library covered by a link group is linked through that group's
+            # single .so, so it needs neither its objects nor a -package of its
+            # own. Its db entry stays in the stack only so that `depends` on it
+            # from packages we do expose still resolves. Exposing these anyway
+            # is the dominant cost of linking a megatarget-based binary: GHC
+            # spends ~1ms per exposed package, and there are thousands.
+            if hlib.name in all_link_group_ids:
+                continue
             package_args.add(hlib.name)
 
             # Add all the transitive objects except for those in link group.
             # for now, only non-profiled binary
             is_profiled = False
-            if hlib.name not in all_link_group_ids:
-                object_args.add(hlib.objects[is_profiled])
+            object_args.add(hlib.objects[is_profiled])
 
     else:  # when link_haskell_objects_at_once = False
         for d in lib_tset.traverse():
@@ -1488,12 +1616,11 @@ def _dynamic_link_binary_impl(
             HaskellLibraryInfoTSet,
             children = [li.info[arg.link_style] for li in arg.direct_deps_link_info],
         )
-        components = link_group_tset.reduce("components")
-        for x in link_group_tset.traverse():
-            shlibs.append(x.lib)
+        for lg in link_groups:
+            shlibs.append(lg.lib)
         if not arg.link_haskell_objects_at_once:
             for x in hlib_tset.traverse():
-                if x.name not in components:
+                if x.name not in all_link_group_ids:
                     shlibs.extend(x.libs)
         for x in toolchain_package_db_tset.traverse():
             shlibs.append(x.path)
@@ -1663,7 +1790,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         lib.prof_info[link_style] if enable_profiling else lib.info[link_style]
         for lib in attr_deps_haskell_link_infos(ctx)
     ]
-    link_group_libs = attr_deps_haskell_link_group_infos(ctx, link_style)
+    direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx, link_style)
 
     if link_style == LinkStyle("shared"):
         output_symlink_dir = ctx.actions.declare_output(
@@ -1680,7 +1807,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         arg = _DynamicLinkBinaryOptions(
             deps = attr_deps(ctx),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
-            direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx, link_style),
+            direct_deps_lg_tsets = direct_deps_lg_tsets,
             enable_profiling = enable_profiling,
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
             haskell_toolchain = haskell_toolchain,
@@ -1689,7 +1816,6 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             link_haskell_objects_at_once = ctx.attrs.link_haskell_objects_at_once,
             linker_flags = ctx.attrs.linker_flags,
             direct_deps_info = direct_deps_info,
-            link_group_libs = link_group_libs,
             toolchain_libs = toolchain_libs,
             allow_cache_upload = ctx.attrs.allow_cache_upload,
         ),
@@ -1713,7 +1839,10 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             resources_hidden.extend(resource.other_outputs)
 
     if link_style == LinkStyle("shared"):
-        run = cmd_args(output, hidden = [output_symlink_dir] + [lginfo.lib for lginfo in link_group_libs] + resources_hidden)
+        # Must match the selection the link action makes, so that exactly the
+        # .so files the binary was linked against are materialized to run it.
+        lg_libs = [lg.lib for lg in select_disjoint_link_groups(direct_deps_lg_tsets)[0]]
+        run = cmd_args(output, hidden = [output_symlink_dir] + lg_libs + resources_hidden)
     else:
         run = cmd_args(output, hidden = resources_hidden)
 
@@ -1771,15 +1900,17 @@ def _make_link_group_package(
         db: OutputArtifact,
         hlibinfos: list[HaskellLibraryInfo],
         project_deps: list[str],
+        link_group_deps: list[str],
         extra_lib_dyns: list[ResolvedDynamicValue],
         toolchain_lib_dyn_infos: list[ResolvedDynamicValue],
-        allow_cache_upload: bool) -> None:
+        allow_cache_upload: bool,
+        output_prefix: str) -> None:
     artifact_suffix = get_artifact_suffix(link_style, False)
 
     toolchain_deps = [info.providers[DynamicHaskellToolchainLibraryInfo].id for info in toolchain_lib_dyn_infos]
     direct_deps = [lib.name for lib in hlibinfos]
     indirect_deps = [n for n in project_deps if n not in direct_deps]
-    all_deps = indirect_deps + toolchain_deps
+    all_deps = indirect_deps + link_group_deps + toolchain_deps
 
     extra_ld_opts = cmd_args()
     for dyn in extra_lib_dyns:
@@ -1796,7 +1927,10 @@ def _make_link_group_package(
     )
 
     profiled = False
-    library_dirs = [_mk_artifact_dir("lib", profiled, link_style)]
+
+    # Must track the group's declared output path: this is what GHC turns into
+    # the -L for the group's .so.
+    library_dirs = [_mk_artifact_dir(output_prefix + "lib", profiled, link_style)]
     conf.add(cmd_args(cmd_args(library_dirs, delimiter = ","), format = "library-dirs: {}"))
     conf.add(cmd_args(libname, format = "hs-libraries: {}"))
 
@@ -1837,6 +1971,7 @@ _DynamicLinkGroupSharedOptions = record(
     link_group_tset = HaskellLinkGroupTSet,
     link_args = LinkArgs,
     allow_cache_upload = bool,
+    output_prefix = str,
 )
 
 # Implement dynamic library linking for a link group
@@ -1968,6 +2103,12 @@ def _dynamic_link_group_shared_impl(
         allow_cache_upload = arg.allow_cache_upload,
     )
 
+    # Libraries owned by a nested group must not appear in this group's
+    # `depends`: a consumer of this group is not guaranteed to have those
+    # component packages in its db stack. The nested group package stands in
+    # for them, so depend on that instead.
+    nested_components = {name: None for name in arg.link_group_tset.reduce("components")}
+
     _make_link_group_package(
         actions,
         link_style = arg.link_style,
@@ -1978,10 +2119,12 @@ def _dynamic_link_group_shared_impl(
         haskell_toolchain = arg.haskell_toolchain,
         db = db,
         hlibinfos = arg.hlibinfos,
-        project_deps = arg.project_deps,
+        project_deps = [d for d in arg.project_deps if d not in nested_components],
+        link_group_deps = arg.link_group_tset.reduce("link_group_deps"),
         extra_lib_dyns = extra_lib_dyns,
         toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
         allow_cache_upload = arg.allow_cache_upload,
+        output_prefix = arg.output_prefix,
     )
 
     return []
@@ -2009,7 +2152,28 @@ def make_haskell_link_group(
         registerer: RunInfo,
         haskell_toolchain: HaskellToolchainInfo,
         linker_info: LinkerInfo,
-        allow_cache_upload: bool) -> list[Provider]:
+        allow_cache_upload: bool,
+        self_infos: dict[LinkStyle, HaskellLibraryInfo] = {},
+        output_prefix: str = "",
+        name_suffix: str = "",
+        default_info: bool = True) -> list[Provider]:
+    """Build a link group: one pre-linked .so over `hlibs`.
+
+    self_infos: when a library builds its own group, its own HaskellLibraryInfo
+      per link style. It is not in `attr_deps`, so it has to be added to the
+      library tset explicitly or the group's package conf would miss the
+      library's own toolchain dependencies.
+    output_prefix: prepended to the group's output names. A library building its
+      own group needs this, since the group's `db-<suffix>` and `lib-<suffix>/`
+      would otherwise collide with the library's own outputs.
+    name_suffix: appended to the group's package and library names. A library
+      building its own group needs this too: both are named after the same
+      label, and two packages with one name in a db stack silently resolve to
+      whichever GHC picks -- here the library's object-only conf, which carries
+      no hs-libraries, so the group's .so would quietly not be linked at all.
+    default_info: set False when the caller owns DefaultInfo, so that building
+      the library does not also link the (very large) group .so.
+    """
     preferred_linkage = _attr_preferred_linkage(ctx)
     actual_link_style = _get_actual_link_style(ctx, preferred_linkage)
 
@@ -2038,6 +2202,8 @@ def make_haskell_link_group(
             libprefix = repr(label.path).replace("//", "_").replace("/", "_")
 
             (pkgname, libname) = make_haskell_names_from_label(label, False)
+            pkgname += name_suffix
+            libname += name_suffix
 
             libstem = libname
             if link_style == LinkStyle("shared"):
@@ -2046,21 +2212,34 @@ def make_haskell_link_group(
                 compiler_suffix = ""
             libfile = "lib" + libstem + compiler_suffix + (dynamic_lib_suffix if link_style == LinkStyle("shared") else static_lib_suffix)
 
-            lib_short_path = paths.join("lib-{}".format(artifact_suffix), libfile)
+            lib_short_path = paths.join(output_prefix + "lib-{}".format(artifact_suffix), libfile)
             lib = actions.declare_output(lib_short_path)
-            db = actions.declare_output("db-" + artifact_suffix, dir = True)
+            db = actions.declare_output(output_prefix + "db-" + artifact_suffix, dir = True)
 
-            libs_tset = actions.tset(
-                HaskellLibraryInfoTSet,
-                children = direct_deps_info,
-            )
+            if link_style in self_infos:
+                libs_tset = actions.tset(
+                    HaskellLibraryInfoTSet,
+                    value = self_infos[link_style],
+                    children = direct_deps_info,
+                )
+            else:
+                libs_tset = actions.tset(
+                    HaskellLibraryInfoTSet,
+                    children = direct_deps_info,
+                )
 
             link_group_tset = actions.tset(
                 HaskellLinkGroupTSet,
                 children = direct_deps_lg_tsets,
             )
 
-            toolchain_deps = libs_tset.reduce("toolchain_packages")
+            # Include nested groups' toolchain packages: their group packages
+            # `depends` on those, so GHC needs them in the db stack to consider
+            # the nested groups usable (mirrors the executable link).
+            toolchain_deps = {
+                d.name: d
+                for d in libs_tset.reduce("toolchain_packages") + link_group_tset.reduce("toolchain_packages")
+            }.values()
             toolchain_deps_name = [d.name for d in toolchain_deps]
             toolchain_lib_dyn_infos = [dep.dynamic for dep in toolchain_deps]
 
@@ -2111,13 +2290,14 @@ def make_haskell_link_group(
                     link_group_tset = link_group_tset,
                     link_args = link_args,
                     allow_cache_upload = allow_cache_upload,
+                    output_prefix = output_prefix,
                 ),
                 toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
                 pkg_deps = pkg_deps,
                 extra_lib_dyns = extra_lib_dyns,
             ))
 
-            if link_style == actual_link_style:
+            if default_info and link_style == actual_link_style:
                 providers.append(DefaultInfo(default_outputs = [lib]))
 
             lg_provider.link_group[link_style] = HaskellLinkGroupInfo(
@@ -2125,6 +2305,7 @@ def make_haskell_link_group(
                 db = db,
                 lib = lib,
                 libraries = hlibinfos,
+                nested_pkgnames = link_group_tset.reduce("link_group_deps"),
             )
 
             link_group_tsets = actions.tset(
