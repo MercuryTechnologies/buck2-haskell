@@ -1386,6 +1386,7 @@ _DynamicLinkBinaryOptions = record(
 def _dynamic_link_binary_impl(
         actions: AnalysisActions,
         pkg_deps: ResolvedDynamicValue,
+        extra_lib_dyns: list[ResolvedDynamicValue],
         output: OutputArtifact,
         output_symlink_dir: OutputArtifact | None,
         arg: _DynamicLinkBinaryOptions) -> list[Provider]:
@@ -1435,13 +1436,9 @@ def _dynamic_link_binary_impl(
 
     # NOTE: If link_haskell_objects_at_once = True, all the transitive dependency objects
     # (except for those from haskell_link_group) are directly linked at executable binary
-    # linking. Therefore, we set package db dependencies to use empty_db (module-object-only
-    # packages)
+    # linking.
     if arg.link_haskell_objects_at_once:  # when link_haskell_objects_at_once = True
         for hlib in lib_tset.traverse():
-            packagedb_args.add(cmd_args(hlib.empty_db))
-            package_args.add(hlib.name)
-
             # Add all the transitive objects except for those in link group.
             # for now, only non-profiled binary
             is_profiled = False
@@ -1466,6 +1463,11 @@ def _dynamic_link_binary_impl(
 
     link_args.add(arg.haskell_toolchain.linker_flags)
     link_args.add(arg.linker_flags)
+
+    # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
+    for dyn in extra_lib_dyns:
+        fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
+        link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}"), prepend = "-optl"))
 
     link_args.add("-o", output)
 
@@ -1526,6 +1528,7 @@ _dynamic_link_binary = dynamic_actions(
     attrs = {
         "arg": dynattrs.value(typing.Any),
         "pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
+        "extra_lib_dyns": dynattrs.list(dynattrs.dynamic_value()),
         "output": dynattrs.output(),
         "output_symlink_dir": dynattrs.option(dynattrs.output()),
     },
@@ -1622,19 +1625,34 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     objects = {}
 
-    # extra-libraries
+    direct_deps_info = [
+        lib.prof_info[link_style] if enable_profiling else lib.info[link_style]
+        for lib in attr_deps_haskell_link_infos(ctx)
+    ]
+
+    # need transitive extra-libraries closure
+    extra_libraries = ctx.attrs.extra_libraries + [
+        elib
+        for hlib in ctx.actions.tset(HaskellLibraryInfoTSet, children = direct_deps_info).traverse()
+        for elib in hlib.extra_libraries
+    ]
     link_args.add(unpack_link_args(get_link_args_for_strategy(
         ctx.actions,
         ctx.label,
         get_cxx_toolchain_info(ctx).linker_info,
         [
             lib[MergedLinkInfo]
-            for lib in ctx.attrs.extra_libraries
+            for lib in extra_libraries
         ],
         to_link_strategy(link_style),
         prefer_stripped = True,
         transformation_spec_context = None,
     )))
+    extra_lib_dyns = [
+        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
+        for lib in extra_libraries
+        if GhcLinkableInfo in lib
+    ]
 
     # only add the first object per module
     # TODO[CB] restructure this to use a record / dict for compiled.objects
@@ -1659,10 +1677,6 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         enable_profiling = enable_profiling,
     )
 
-    direct_deps_info = [
-        lib.prof_info[link_style] if enable_profiling else lib.info[link_style]
-        for lib in attr_deps_haskell_link_infos(ctx)
-    ]
     link_group_libs = attr_deps_haskell_link_group_infos(ctx, link_style)
 
     if link_style == LinkStyle("shared"):
@@ -1675,6 +1689,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     ctx.actions.dynamic_output_new(_dynamic_link_binary(
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
+        extra_lib_dyns = extra_lib_dyns,
         output = output.as_output(),
         output_symlink_dir = output_symlink_dir.as_output() if output_symlink_dir else None,
         arg = _DynamicLinkBinaryOptions(
@@ -1875,17 +1890,13 @@ def _dynamic_link_group_shared_impl(
     package_args.add(cmd_args(arg.link_group_tset.project_as_args("package"), prepend = "-package"))
 
     # adding indirect project dep packages
-    direct_deps = []
     indirect_deps = []
     direct_deps_name = [d.name for d in arg.hlibinfos]
 
     component_deps = arg.link_group_tset.reduce("components") + direct_deps_name
 
     for d in list(arg.libs_tset.traverse()):
-        if d.name in component_deps:
-            direct_deps.append(d)
-            packagedb_args.add(cmd_args(d.empty_db))
-        else:
+        if d.name not in component_deps:
             indirect_deps.append(d)
             packagedb_args.add(cmd_args(d.db))
 
