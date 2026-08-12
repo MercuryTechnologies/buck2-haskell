@@ -4,7 +4,7 @@
 # LICENSE-MIT file in the root directory of this source tree and the Apache
 # License, Version 2.0 found in the LICENSE-APACHE file in the root directory
 # of this source tree.
-
+load("@prelude//cxx:cxx_context.bzl", "get_cxx_toolchain_info")
 load(
     "@prelude//cxx:cxx_toolchain_types.bzl",
     "CxxToolchainInfo",
@@ -12,6 +12,10 @@ load(
 load(
     "@prelude//linking:link_info.bzl",
     "LinkStyle",
+    "MergedLinkInfo",
+    "get_link_args_for_strategy",
+    "map_to_link_infos",
+    "to_link_strategy",
 )
 load("@prelude//utils:arglike.bzl", "ArgLike")
 load("@prelude//utils:utils.bzl", "flatten")
@@ -115,3 +119,20 @@ ExtraGhcLinkerFlagsInfo = provider(fields = {
 GhcLinkableInfo = provider(fields = {
     "extra_ghc_linker_flags_dynamic": DynamicValue,
 })
+
+def get_link_infos_from_extra_lib_info(actions, label, linker_info, link_style, extra_lib_info):
+    link_infos = map_to_link_infos([
+        get_link_args_for_strategy(
+            actions,
+            label,
+            linker_info,
+            [
+                lib[MergedLinkInfo]
+                for lib in extra_lib_info.as_deps
+            ],
+            to_link_strategy(link_style),
+            prefer_stripped = True,
+            transformation_spec_context = None,
+        ),
+    ])
+    return link_infos
