@@ -21,6 +21,12 @@ HaskellPackageConfInfo = record(
     deps_conf = Artifact | None,
 )
 
+ExtraLibraryInfo = record(
+    as_deps = list[Dependency],
+    extra_libs = list[Artifact],
+    extra_lib_dyns = list[DynamicValue],
+)
+
 # A record of a Haskell library.
 HaskellLibraryInfo = record(
     # The library target name: e.g. "rts"
@@ -45,7 +51,7 @@ HaskellLibraryInfo = record(
     hie_files = dict[bool, list[Artifact]],
     stub_dirs = list[Artifact],
     # extra non-Haskell libraries
-    extra_libraries = field(list[Dependency], []),
+    extra_libraries = field(ExtraLibraryInfo, ExtraLibraryInfo(as_deps = [], extra_libs = [], extra_lib_dyns = [])),
 
     # resultant libraries
     libs = field(list[Artifact], []),
