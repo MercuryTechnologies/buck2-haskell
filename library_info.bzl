@@ -141,3 +141,8 @@ HaskellSourceInfo = provider(
         "srcs": provider_field(HaskellSourcesTSet),
     },
 )
+
+# This seems extremely incorrect but it's what
+# `../linking/link_info.bzl` does as well!
+def get_libname(linkable):
+    return (linkable.lib.basename.removeprefix("lib").removesuffix(linkable.lib.extension))

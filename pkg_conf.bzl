@@ -3,6 +3,7 @@ load(
     "LinkInfo",
     "SharedLibLinkable",
 )
+load(":library_info.bzl", "get_libname")
 
 # See: https://ghc.gitlab.haskell.org/ghc/doc/users_guide/packages.html#installedpackageinfo-a-package-specification
 PkgConfLinkFields = record(
@@ -41,10 +42,7 @@ def get_pkg_conf_link_fields(
         for linkable in link_info.linkables:
             if isinstance(linkable, SharedLibLinkable):
                 library_dirs.add(linkable.lib)
-
-                # This seems extremely incorrect but it's what
-                # `../linking/link_info.bzl` does as well!
-                extra_libraries.add(linkable.lib.basename.removeprefix("lib").removesuffix(linkable.lib.extension))
+                extra_libraries.add(get_libname(linkable))
             else:
                 fail("Unimplemented linkable for package {}: {}".format(pkgname, linkable))
 
