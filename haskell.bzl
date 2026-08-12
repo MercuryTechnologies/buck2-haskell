@@ -60,6 +60,7 @@ load(
     ":compile.bzl",
     "CompileResultInfo",
     "compile",
+    "get_extra_lib_info",
     "target_metadata",
     "target_skeleton",
 )
@@ -74,6 +75,7 @@ load(
 )
 load(
     ":library_info.bzl",
+    "ExtraLibraryInfo",
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
@@ -539,6 +541,7 @@ def _make_package(
         enable_profiling: bool,
         use_empty_lib: bool,
         md_file: Artifact,
+        extra_lib_info: ExtraLibraryInfo,
         for_deps: bool = False):
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
@@ -562,7 +565,7 @@ def _make_package(
             get_cxx_toolchain_info(ctx).linker_info,
             [
                 lib[MergedLinkInfo]
-                for lib in ctx.attrs.extra_libraries
+                for lib in extra_lib_info.as_deps
             ],
             to_link_strategy(link_style),
             prefer_stripped = True,
@@ -572,8 +575,6 @@ def _make_package(
 
     toolchain_libs = attr_deps_haskell_toolchain_libraries(ctx)
     toolchain_lib_dyn_infos = [dep.dynamic for dep in toolchain_libs]
-
-    extra_libs, extra_lib_dyns = _get_extra_lib_artifacts(ctx, link_style)
 
     arg = _WritePackageConfOptions(
         for_deps = for_deps,
@@ -590,7 +591,7 @@ def _make_package(
         strip_prefix = ctx.attrs.strip_prefix,
         haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo],
         registerer = ctx.attrs._ghc_pkg_registerer[RunInfo],
-        extra_libs = extra_libs,
+        extra_libs = extra_lib_info.extra_libs,
         purpose = purpose,
     )
 
@@ -598,7 +599,7 @@ def _make_package(
         _write_package_conf(
             md_file = md_file,
             toolchain_lib_dyn_infos = toolchain_lib_dyn_infos,
-            extra_lib_dyns = extra_lib_dyns,
+            extra_lib_dyns = extra_lib_info.extra_lib_dyns,
             pkg_conf = pkg_conf.as_output(),
             db = db.as_output(),
             libname = libname,
@@ -756,19 +757,6 @@ _dynamic_link_shared = dynamic_actions(
     },
 )
 
-# Get list of extra library artifacts and dynamic value associated with them
-def _get_extra_lib_artifacts(ctx: AnalysisContext, link_style: LinkStyle):
-    extra_libs = []
-    for lib in ctx.attrs.extra_libraries:
-        xs = lib[MergedLinkInfo]._infos[to_link_strategy(link_style)].traverse()
-        for x in xs:
-            extra_libs.extend([l.lib for l in x.default.linkables])
-    extra_lib_dyns = [
-        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
-        for lib in ctx.attrs.extra_libraries
-    ]
-    return extra_libs, extra_lib_dyns
-
 def _build_haskell_lib(
         ctx: AnalysisContext,
         worker: WorkerInfo | None,
@@ -842,7 +830,9 @@ def _build_haskell_lib(
     project_libs_full = attr_deps_haskell_lib_infos(ctx, link_style, enable_profiling)
 
     # extra-libraries
-    extra_libs, extra_lib_dyns = _get_extra_lib_artifacts(ctx, link_style)
+    extra_lib_info = get_extra_lib_info(link_style, ctx.attrs.extra_libraries)
+    extra_libs = extra_lib_info.extra_libs
+    extra_lib_dyns = extra_lib_info.extra_lib_dyns
 
     link_args = unpack_link_args(get_link_args_for_strategy(
         ctx.actions,
@@ -999,6 +989,7 @@ def _build_haskell_lib(
         enable_profiling = enable_profiling,
         use_empty_lib = False,
         md_file = md_file,
+        extra_lib_info = extra_lib_info,
     )
     empty_db, empty_conf = _make_package(
         ctx,
@@ -1010,6 +1001,7 @@ def _build_haskell_lib(
         enable_profiling = enable_profiling,
         use_empty_lib = True,
         md_file = md_file,
+        extra_lib_info = extra_lib_info,
     )
     deps_db, deps_conf = _make_package(
         ctx,
@@ -1021,6 +1013,7 @@ def _build_haskell_lib(
         enable_profiling = enable_profiling,
         use_empty_lib = True,
         md_file = md_file,
+        extra_lib_info = extra_lib_info,
         for_deps = True,
     )
 
@@ -1040,7 +1033,7 @@ def _build_haskell_lib(
         objects = object_artifacts,
         hie_files = hie_artifacts,
         stub_dirs = stub_dirs,
-        extra_libraries = ctx.attrs.extra_libraries,
+        extra_libraries = extra_lib_info,
         libs = all_libs,
         version = "1.0.0",
         is_prebuilt = False,
@@ -2077,7 +2070,7 @@ def make_haskell_link_group(
             pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None
 
             # collect all the extra library dependencies from component Haskell libraries
-            direct_extra_libs = [elib for p in hlibs for elib in p.lib[link_style].extra_libraries]
+            direct_extra_libs = [elib for p in hlibs for elib in p.lib[link_style].extra_libraries.as_deps]
             link_args = get_link_args_for_strategy(
                 ctx.actions,
                 ctx.label,
@@ -2086,18 +2079,18 @@ def make_haskell_link_group(
                 # `GhcLinkableInfo` providers, but the type system doesn't guarantee
                 # that statically, so let's just be safe.
                 [
-                    lib[MergedLinkInfo]
-                    for lib in direct_extra_libs
-                    if MergedLinkInfo in lib
+                    extra_lib[MergedLinkInfo]
+                    for extra_lib in direct_extra_libs
+                    if MergedLinkInfo in extra_lib
                 ],
                 to_link_strategy(link_style),
                 prefer_stripped = True,
                 transformation_spec_context = None,
             )
             extra_lib_dyns = [
-                lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
-                for lib in direct_extra_libs
-                if GhcLinkableInfo in lib
+                extra_lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
+                for extra_lib in direct_extra_libs
+                if GhcLinkableInfo in extra_lib
             ]
 
             actions.dynamic_output_new(_dynamic_link_group_shared(

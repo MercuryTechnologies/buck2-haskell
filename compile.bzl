@@ -28,12 +28,14 @@ load("@prelude//utils:graph_utils.bzl", "post_order_traversal")
 load("@prelude//utils:strings.bzl", "strip_prefix")
 load(
     ":library_info.bzl",
+    "ExtraLibraryInfo",
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
 )
 load(
     ":link_info.bzl",
+    "GhcLinkableInfo",
     "HaskellLinkGroupInfo",
     "HaskellLinkGroupProvider",
     "HaskellLinkInfo",
@@ -720,6 +722,26 @@ def _package_flag(toolchain: HaskellToolchainInfo) -> str:
         return "-expose-package"
     else:
         return "-package"
+
+# Get list of extra library artifacts and dynamic value associated with them
+def get_extra_lib_info(
+        link_style: LinkStyle,
+        extra_libraries: list[Dependency]) -> ExtraLibraryInfo:
+    extra_libs = []
+    for lib in extra_libraries:
+        xs = lib[MergedLinkInfo]._infos[to_link_strategy(link_style)].traverse()
+        for x in xs:
+            extra_libs.extend([l.lib for l in x.default.linkables])
+    extra_lib_dyns = [
+        lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
+        for lib in extra_libraries
+    ]
+    extra_lib_info = ExtraLibraryInfo(
+        extra_libs = extra_libs,
+        extra_lib_dyns = extra_lib_dyns,
+        as_deps = extra_libraries,
+    )
+    return extra_lib_info
 
 def get_packages_info(
         actions: AnalysisActions,
