@@ -94,6 +94,7 @@ load(
     "HaskellLinkInfo",
     "attr_link_style",
     "cxx_toolchain_link_style",
+    "get_link_infos_from_extra_lib_info",
 )
 load(":pkg_conf.bzl", "append_pkg_conf_link_fields_for_link_infos")
 load(":resources.bzl", "haskell_attr_resources")
@@ -558,20 +559,13 @@ def _make_package(
         db = ctx.actions.declare_output("db-" + artifact_suffix, dir = True)
         purpose = "final"
 
-    link_infos = map_to_link_infos([
-        get_link_args_for_strategy(
-            ctx.actions,
-            ctx.label,
-            get_cxx_toolchain_info(ctx).linker_info,
-            [
-                lib[MergedLinkInfo]
-                for lib in extra_lib_info.as_deps
-            ],
-            to_link_strategy(link_style),
-            prefer_stripped = True,
-            transformation_spec_context = None,
-        ),
-    ])
+    link_infos = get_link_infos_from_extra_lib_info(
+        ctx.actions,
+        ctx.label,
+        get_cxx_toolchain_info(ctx).linker_info,
+        link_style,
+        extra_lib_info,
+    )
 
     toolchain_libs = attr_deps_haskell_toolchain_libraries(ctx)
     toolchain_lib_dyn_infos = [dep.dynamic for dep in toolchain_libs]
