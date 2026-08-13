@@ -167,3 +167,10 @@ HaskellSourceInfo = provider(
 # `../linking/link_info.bzl` does as well!
 def get_libname(linkable):
     return (linkable.lib.basename.removeprefix("lib").removesuffix(linkable.lib.extension))
+
+def merge_extra_lib_infos(x: ExtraLibraryInfo, y: ExtraLibraryInfo) -> ExtraLibraryInfo:
+    return ExtraLibraryInfo (
+        as_deps = dedupe_by_value(x.as_deps + y.as_deps),
+        extra_libs = dedupe_by_value(x.extra_libs + y.extra_libs),
+        extra_lib_dyns = dedupe_by_value(x.extra_lib_dyns + y.extra_lib_dyns),
+    )
