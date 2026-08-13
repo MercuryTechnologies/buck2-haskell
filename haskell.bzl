@@ -823,7 +823,7 @@ def _build_haskell_lib(
     toolchain_libs_full = attr_deps_haskell_toolchain_libraries(ctx)
     project_libs_full = attr_deps_haskell_lib_infos(ctx, link_style, enable_profiling)
 
-    # extra-libraries
+    # construct ExtraLibraryInfo struct from extra_libraries
     extra_lib_info = get_extra_lib_info(link_style, ctx.attrs.extra_libraries)
     extra_libs = extra_lib_info.extra_libs
     extra_lib_dyns = extra_lib_info.extra_lib_dyns

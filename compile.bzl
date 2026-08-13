@@ -746,10 +746,10 @@ def get_extra_lib_info(
         link_style: LinkStyle,
         extra_libraries: list[Dependency]) -> ExtraLibraryInfo:
     extra_libs = []
+    extra_lib_dyns = []
     for lib in extra_libraries:
-        xs = lib[MergedLinkInfo]._infos[to_link_strategy(link_style)].traverse()
-        for x in xs:
-            extra_libs.extend([l.lib for l in x.default.linkables])
+        x = lib[MergedLinkInfo]._infos[to_link_strategy(link_style)].value
+        extra_libs.extend([l.lib for l in x.default.linkables])
     extra_lib_dyns = [
         lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
         for lib in extra_libraries
@@ -757,7 +757,7 @@ def get_extra_lib_info(
     extra_lib_info = ExtraLibraryInfo(
         extra_libs = dedupe_by_value(extra_libs),
         extra_lib_dyns = dedupe_by_value(extra_lib_dyns),
-        as_deps = extra_libraries,
+        as_deps = list(extra_libraries),  # NOTE: Should hold a *copy* of extra_libraries
     )
     return extra_lib_info
 
