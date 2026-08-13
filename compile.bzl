@@ -34,6 +34,7 @@ load(
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
     "get_libname",
+    "merge_extra_lib_infos",
 )
 load(
     ":link_info.bzl",
@@ -181,6 +182,7 @@ _DynamicDoCompileOptions = record(
     compiler_flags = list[typing.Any],  # Arguments.
     ghc_rts_flags = list[typing.Any],  # Arguments.
     deps = list[Dependency],
+    direct_extra_libs = list[Dependency],
     direct_deps_info = list[HaskellLibraryInfoTSet],
     direct_deps_link_info = list[HaskellLinkInfo],
     haskell_direct_deps_lib_infos = list[HaskellLibraryInfo],
@@ -439,6 +441,7 @@ MetadataUnitParams = record(
     unit = field(UnitParams),
     toolchain_libs = field(list[str]),
     deps = field(list[Dependency]),
+    direct_extra_libs = field(list[Dependency]),
     is_binary = field(bool),
 )
 
@@ -512,6 +515,7 @@ def _dynamic_target_metadata_impl(
         actions,
         arg.label,
         munit.deps,
+        munit.direct_extra_libs,
         arg.direct_deps_link_info,
         haskell_toolchain,
         arg.linker_info,
@@ -686,6 +690,7 @@ def target_metadata(
                 ),
                 toolchain_libs = toolchain_libs,
                 deps = attr_deps(ctx),
+                direct_extra_libs = ctx.attrs.extra_libraries,
                 is_binary = is_binary,
             ),
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
@@ -759,6 +764,7 @@ def get_packages_info(
         actions: AnalysisActions,
         label: Label,
         deps: list[Dependency],
+        direct_extra_libs: list[Dependency],  # extra library dependency of this package
         direct_deps_link_info: list[HaskellLinkInfo],
         haskell_toolchain: HaskellToolchainInfo,
         linker_info: typing.Any,
@@ -805,7 +811,9 @@ def get_packages_info(
             exposed_package_args.add(hidden_args)
 
     extra_libs_args = cmd_args()
-    extra_lib_info = libs.reduce("extra_libs")
+    extra_lib_info_transitive = libs.reduce("extra_libs")
+    direct_extra_lib_info = get_extra_lib_info(link_style, direct_extra_libs)
+    extra_lib_info = merge_extra_lib_infos(direct_extra_lib_info, extra_lib_info_transitive)
     link_infos = get_link_infos_from_extra_lib_info(actions, label, linker_info, link_style, extra_lib_info)
     for link_info in link_infos:
         for linkable in link_info.linkables:
@@ -1598,6 +1606,7 @@ def compile_args_for_non_incr(
         compiler_flags: list[typing.Any],  # Arguments.
         main: str | None,
         deps: list[Dependency],
+        direct_extra_libs: list[Dependency],
         sources: list[typing.Any],  # Source.
         external_tool_paths: list[RunInfo],
         link_style: LinkStyle,
@@ -1667,6 +1676,7 @@ def compile_args_for_non_incr(
         actions,
         label,
         deps,
+        direct_extra_libs,
         direct_deps_link_info,
         haskell_toolchain,
         linker_info,
@@ -1781,6 +1791,7 @@ def _compile_non_incr(
             compiler_flags = arg.compiler_flags,
             main = arg.main,
             deps = arg.deps,
+            direct_extra_libs = arg.direct_extra_libs,
             sources = arg.sources,
             external_tool_paths = arg.external_tool_paths,
             link_style = link_style,
@@ -2049,6 +2060,7 @@ def compile(
             compiler_flags = ctx.attrs.compiler_flags,
             ghc_rts_flags = ctx.attrs.ghc_rts_flags,
             deps = attr_deps(ctx),
+            direct_extra_libs = ctx.attrs.extra_libraries,
             direct_deps_info = direct_deps_info,
             # though this is redundant. for now let's pass them.
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),

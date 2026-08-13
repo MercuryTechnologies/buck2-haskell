@@ -879,6 +879,7 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
         actions = ctx.actions,
         label = ctx.label,
         deps = attr_deps(ctx),
+        direct_extra_libs = ctx.attrs.extra_libraries,
         direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
         haskell_toolchain = haskell_toolchain,
         linker_info = get_cxx_toolchain_info(ctx).linker_info,
