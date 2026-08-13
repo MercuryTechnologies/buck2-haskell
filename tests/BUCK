@@ -21,6 +21,7 @@ load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
     "inspection-testing",
     "primitive",
     "process",
+    "template-haskell",
     # keep-sorted end
 ]]
 

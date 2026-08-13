@@ -1396,6 +1396,8 @@ def _compile_module(
         actions.declare_output("dep-{}_{}".format(module_name, artifact_suffix)).as_output(),
     )
 
+    abi_hash_inputs = dependency_modules.project_as_args("abi")
+
     # ----------------------------------------------------------------------------------------------------
 
     # These arguments for `ghc_wrapper`/the worker can be passed in a response file.
@@ -1416,6 +1418,11 @@ def _compile_module(
             outputs = outputs,
             md_file = md_file,
         ))
+
+        # The worker narrows the dep file to the files GHC actually consulted.
+        # Tagging here keeps an ABI change from invalidating every module that can reach the
+        # change, deferring to the worker's narrowed set.
+        abi_hash_inputs = abi_tag.tag_artifacts(abi_hash_inputs)
 
         # The make worker does not support stub dirs at the moment, so we create it directly.
         # Since the entire module graph's flags are supposed to be fully initialized in the metadata step, we can't pass
@@ -1512,7 +1519,7 @@ def _compile_module(
             compile_cmd_args,
             hidden = [
                 abi_tag.tag_artifacts(dependency_modules.project_as_args("interfaces")),
-                dependency_modules.project_as_args("abi"),
+                abi_hash_inputs,
             ] + hidden_toolchain_deps,
         ),
         category = "haskell_compile_" + artifact_suffix.replace("-", "_"),

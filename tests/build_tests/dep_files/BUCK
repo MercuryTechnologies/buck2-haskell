@@ -1,0 +1,33 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_library",
+)
+
+haskell_library(
+    name = "lib",
+    srcs = [
+        "Base.hs",
+        "Dep.hs",
+        "Finst/Dep.hs",
+        "Finst/Fam.hs",
+        "Finst/Inst.hs",
+        "Finst/User.hs",
+        "Orphan/Base.hs",
+        "Orphan/Class.hs",
+        "Orphan/Dep.hs",
+        "Orphan/User.hs",
+        "THUser.hs",
+        "User.hs",
+    ],
+    deps = [
+        "//tests:base",
+        "//tests:template-haskell",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+sh_test(
+    name = "test_dep_files",
+    test = "test_dep_files.sh",
+    labels = ["buck2_run_from_project_root"],
+)
