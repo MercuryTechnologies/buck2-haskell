@@ -2094,11 +2094,11 @@ def make_haskell_link_group(
                 prefer_stripped = True,
                 transformation_spec_context = None,
             )
-            extra_lib_dyns = [
+            extra_lib_dyns = dedupe_by_value([
                 extra_lib[GhcLinkableInfo].extra_ghc_linker_flags_dynamic
                 for extra_lib in direct_extra_libs
                 if GhcLinkableInfo in extra_lib
-            ]
+            ])
 
             actions.dynamic_output_new(_dynamic_link_group_shared(
                 lib = lib.as_output(),

@@ -27,6 +27,7 @@ load("@prelude//utils:argfile.bzl", "argfile", "at_argfile")
 load("@prelude//utils:arglike.bzl", "ArgLike")
 load("@prelude//utils:graph_utils.bzl", "post_order_traversal")
 load("@prelude//utils:strings.bzl", "strip_prefix")
+load("@prelude//utils:utils.bzl", "dedupe_by_value")
 load(
     ":library_info.bzl",
     "ExtraLibraryInfo",
@@ -754,8 +755,8 @@ def get_extra_lib_info(
         for lib in extra_libraries
     ]
     extra_lib_info = ExtraLibraryInfo(
-        extra_libs = extra_libs,
-        extra_lib_dyns = extra_lib_dyns,
+        extra_libs = dedupe_by_value(extra_libs),
+        extra_lib_dyns = dedupe_by_value(extra_lib_dyns),
         as_deps = extra_libraries,
     )
     return extra_lib_info
