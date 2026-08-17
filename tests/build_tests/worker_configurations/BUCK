@@ -1,0 +1,22 @@
+load(":rules.bzl", "worker_configuration_test")
+
+constraint_setting(
+    name = "worker_configuration",
+)
+
+constraint_value(
+    name = "worker_configuration_first",
+    constraint_setting = ":worker_configuration",
+)
+
+constraint_value(
+    name = "worker_configuration_second",
+    constraint_setting = ":worker_configuration",
+)
+
+worker_configuration_test(
+    name = "worker_configuration_test",
+    binary_name = "binary",
+    srcs = ["Main.hs"],
+    deps = ["//tests:base"],
+)

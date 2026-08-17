@@ -21,6 +21,7 @@ load(":haskell_ide.bzl", "haskell_ide_impl")
 load(":library_info.bzl", "HaskellLibraryProvider", "HaskellSourceInfo")
 load(":link_info.bzl", "GhcLinkableInfo", "HaskellLinkInfo")
 load(":toolchain.bzl", "haskell_toolchain")
+load(":worker_config.bzl", "worker_per_configuration")
 
 def _srcs_arg():
     return {
@@ -63,6 +64,15 @@ def _exported_linker_flags_arg():
 """),
     }
 
+def _worker_attr():
+    if worker_per_configuration():
+        # One provider per target/exec configuration pair prevents GHC state
+        # from leaking while preserving the consumer's selected exec platform.
+        return attrs.option(attrs.toolchain_dep(providers = [WorkerInfo]), default = None)
+    # This escape hatch saves memory but is unsound when a build compiles
+    # Haskell under more than one target configuration.
+    return attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None)
+
 def _scripts_arg():
     return {
         "_generate_target_metadata": attrs.dep(
@@ -77,7 +87,10 @@ def _scripts_arg():
             providers = [RunInfo],
             default = "@buck2-haskell//tools:ghc_pkg_registerer",
         ),
-        "_worker": attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None),
+        # Configuration scope is controlled by ghc-worker.per_configuration.
+        # FIXME(DUX-5633): Retire workers when their configuration becomes
+        # inactive or the build is under memory pressure, perhaps in buck-proxy.
+        "_worker": _worker_attr(),
     }
 
 def _external_tools_arg():
@@ -391,7 +404,10 @@ haskell_ghci_global = rule(
                 providers = [RunInfo],
                 default = "@buck2-haskell//tools:ghc_pkg_registerer",
             ),
-            "_worker": attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None),
+            # Configuration scope is controlled by ghc-worker.per_configuration.
+            # FIXME(DUX-5633): Retire workers when their configuration becomes
+            # inactive or the build is under memory pressure, perhaps in buck-proxy.
+            "_worker": _worker_attr(),
             "_cxx_toolchain": toolchains_common.cxx(),
             "_haskell_toolchain": haskell_toolchain(),
         }
