@@ -1485,29 +1485,35 @@ def _dynamic_link_binary_impl(
 
     # TODO: this must be interleaved with the above.
     if arg.link_style == LinkStyle("shared"):
-        shlibs = []
+        shlib_entries = []
         hlib_tset = actions.tset(
             HaskellLibraryInfoTSet,
             children = [li.info[arg.link_style] for li in arg.direct_deps_link_info],
         )
         components = link_group_tset.reduce("components")
         for x in link_group_tset.traverse():
-            shlibs.append(x.lib)
+            shlib_entries.append((x.lib.basename, x.lib))
         if not arg.link_haskell_objects_at_once:
             for x in hlib_tset.traverse():
                 if x.name not in components:
-                    shlibs.extend(x.libs)
-        for x in toolchain_package_db_tset.traverse():
-            shlibs.append(x.path)
-        shlibs_dict = {}
+                    shlib_entries.extend([(lib.basename, lib) for lib in x.libs])
 
-        # for now, we are just using numbers. Let's make proper naming when HaskellToolchainPackage
-        # for toolchain libraries can have more metadata information.
-        i = 0
-        for x in shlibs:
-            i += 1
-            k = "{}".format(i)
-            shlibs_dict[k] = x
+        unnamed_packages = 0
+        for x in toolchain_package_db_tset.traverse():
+            if x.name:
+                shlib_entries.append((x.name, x.path))
+            else:
+                unnamed_packages += 1
+                shlib_entries.append(("{}".format(unnamed_packages), x.path))
+
+        shlibs_dict = {}
+        for (name, artifact) in shlib_entries:
+            existing = shlibs_dict.get(name)
+            if existing == artifact:
+                continue
+            if existing != None:
+                name = "{}.{}".format(name, len(shlibs_dict))
+            shlibs_dict[name] = artifact
         if output_symlink_dir:
             actions.symlinked_dir(
                 output_symlink_dir,

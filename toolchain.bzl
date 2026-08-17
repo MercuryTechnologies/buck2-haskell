@@ -18,6 +18,7 @@ HaskellToolchainPackagesInfo = record(
 HaskellToolchainPackage = record(
     db = ArgLike,
     path = Artifact,
+    name = field(str, ""),
 )
 
 HaskellToolchainInfo = provider(
