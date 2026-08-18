@@ -17,11 +17,7 @@ load(
     "LinkerInfo",
     "LinkerType",
 )
-load(
-    "@prelude//cxx:linker.bzl",
-    "LINKERS",
-    "get_shared_library_flags",
-)
+load("@prelude//cxx:linker.bzl", "LINKERS", "get_rpath_origin", "get_shared_library_flags")
 load(
     "@prelude//linking:link_info.bzl",
     "ArchiveLinkable",
@@ -1678,6 +1674,14 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             "__{}__shared_libs_symlink_tree".format(ctx.label.name),
             dir = True,
         )
+
+        link_args.add(cmd_args(
+            "-Wl,-rpath,{}/{}".format(
+                get_rpath_origin(get_cxx_toolchain_info(ctx).linker_info.type),
+                output_symlink_dir.short_path,
+            ),
+            prepend = "-optl",
+        ))
     else:
         output_symlink_dir = None
 
@@ -1721,7 +1725,10 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             resources_hidden.extend(resource.other_outputs)
 
     if link_style == LinkStyle("shared"):
-        run = cmd_args(output, hidden = [output_symlink_dir] + [lginfo.lib for lginfo in link_group_libs] + resources_hidden)
+        shared_libs = [output_symlink_dir] + [lginfo.lib for lginfo in link_group_libs]
+
+        output = output.with_associated_artifacts(shared_libs)
+        run = cmd_args(output, hidden = shared_libs + resources_hidden)
     else:
         run = cmd_args(output, hidden = resources_hidden)
 
