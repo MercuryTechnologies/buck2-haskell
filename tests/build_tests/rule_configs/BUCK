@@ -25,6 +25,17 @@ haskell_library(
     allow_worker = False,
 )
 
+haskell_library(
+    name = "lib2",
+    srcs = ["Lib2.hs"],
+    deps = [
+        "//tests:base",
+        ":lib",
+    ],
+    visibility = ["//tests/..."],
+    allow_worker = False,
+)
+
 # =============================================================================
 # haskell_haddock targets (documentation generation for haskell_library)
 # =============================================================================
@@ -33,6 +44,12 @@ haskell_library(
 haskell_haddock(
     name = "haddock_lib",
     deps = [":lib"],
+)
+
+# Test: haddock documentation for lib.
+haskell_haddock(
+    name = "haddock_lib2",
+    deps = [":lib2"],
 )
 
 # =============================================================================

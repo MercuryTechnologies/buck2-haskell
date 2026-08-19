@@ -8,10 +8,14 @@
 load("@prelude//utils:graph_utils.bzl", "post_order_traversal")
 load("@prelude//:paths.bzl", "paths")
 load(":compile.bzl", "CompileResultInfo", "CompiledModuleTSet", "DynamicCompileResultInfo")
+load(":library_info.bzl", "HaskellLibraryInfoTSet")
 load(":link_info.bzl", "cxx_toolchain_link_style")
 load(
     ":toolchain.bzl",
     "HaskellToolchainInfo",
+    "DynamicHaskellToolchainPackageDbInfo",
+    "HaskellToolchainLibrary",
+    "HaskellToolchainPackageDbTSet",
 )
 load(
     ":util.bzl",
@@ -55,6 +59,7 @@ def _haddock_dump_interface(
     haddock_info: _HaddockInfo,
     module_deps: list[CompiledModuleTSet],
     graph: dict[str, list[str]],
+    toolchain_packagedb_args: TransitiveSetArgsProjection,
     outputs: dict[Artifact, OutputArtifact]) -> _HaddockInfoTSet:
 
     # Transitive module dependencies from other packages.
@@ -63,6 +68,10 @@ def _haddock_dump_interface(
         children = module_deps,
     )
     cross_interfaces = cross_package_modules.project_as_args("interfaces")
+
+    # Package databases of the transitive module dependencies from other
+    # packages (locally built Haskell libraries).
+    cross_package_dbs = cross_package_modules.reduce("packagedb_deps").keys()
 
     # Transitive module dependencies from the same package.
     this_package_modules = [
@@ -95,7 +104,13 @@ def _haddock_dump_interface(
             ),
             cmd_args(
                 cross_interfaces, format="--one-shot-dep-hi={}"
-            )
+            ),
+            cmd_args(
+                cross_package_dbs, format="--optghc=-package-db={}"
+            ),
+            cmd_args(
+                toolchain_packagedb_args, format="--optghc=-package-db={}"
+            ),
         ),
         category = "haskell_haddock",
         identifier = module_name,
@@ -114,11 +129,37 @@ def _haddock_dump_interface(
         children = this_package_modules,
     )
 
-def _dynamic_haddock_dump_interfaces_impl(actions, md_file, dynamic_info_lib, outputs, arg):
+def _dynamic_haddock_dump_interfaces_impl(
+    actions,
+    md_file,
+    dynamic_info_lib,
+    toolchain_pkg_deps,
+    outputs,
+    arg):
+
     md = md_file.read_json()
     module_map = md_module_mapping(md)
     graph = md["module_graph"]
     package_deps = md["package_deps"]
+    if toolchain_pkg_deps:
+        toolchain_package_db = toolchain_pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
+    else:
+        toolchain_package_db = {}
+
+    # Package databases of the toolchain library dependencies (and their
+    # transitive closure). These provide packages such as `base` or
+    # `hspec-core` that the interface files being documented refer to. Only
+    # include the package-dbs of the actual (transitive) dependencies rather
+    # than every package the toolchain knows about.
+    toolchain_package_db_tset = actions.tset(
+        HaskellToolchainPackageDbTSet,
+        children = [
+            toolchain_package_db[name]
+            for name in arg.toolchain_libs
+            if name in toolchain_package_db
+        ],
+    )
+    toolchain_packagedb_args = toolchain_package_db_tset.project_as_args("toolchain_package_db")
 
     haddock_infos = { module_map.get(k, k): v for k, v in arg.haddock_infos.items() }
     module_tsets = {}
@@ -138,6 +179,7 @@ def _dynamic_haddock_dump_interfaces_impl(actions, md_file, dynamic_info_lib, ou
             haddock_info = haddock_infos[module_name],
             module_deps = module_deps,
                 graph = graph,
+            toolchain_packagedb_args = toolchain_packagedb_args,
             outputs = outputs,
         )
 
@@ -149,6 +191,7 @@ _dynamic_haddock_dump_interfaces = dynamic_actions(
         "md_file": dynattrs.artifact_value(),
         "arg": dynattrs.value(typing.Any),
         "dynamic_info_lib": dynattrs.dict(str, dynattrs.dynamic_value()),
+        "toolchain_pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
         "outputs": dynattrs.dict(Artifact, dynattrs.output()),
     },
 )
@@ -189,6 +232,20 @@ def haskell_haddock_lib(ctx: AnalysisContext, pkgname: str, compiled: CompileRes
     }
 
     direct_deps_link_info = attr_deps_haskell_link_infos(ctx)
+    pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None
+
+    # Compute the transitive set of toolchain library dependencies (by name)
+    # so that only their package-dbs are passed to haddock.
+    libs = ctx.actions.tset(
+        HaskellLibraryInfoTSet,
+        children = [lib.info[link_style] for lib in direct_deps_link_info],
+    )
+    direct_toolchain_libs = [
+        dep[HaskellToolchainLibrary].name
+        for dep in attr_deps(ctx)
+        if HaskellToolchainLibrary in dep
+    ]
+    toolchain_libs = direct_toolchain_libs + libs.reduce("packages")
 
     ctx.actions.dynamic_output_new(_dynamic_haddock_dump_interfaces(
         md_file = md_file,
@@ -201,12 +258,14 @@ def haskell_haddock_lib(ctx: AnalysisContext, pkgname: str, compiled: CompileRes
                 lib.info[link_style],
             ]
         },
+        toolchain_pkg_deps = pkg_deps,
         outputs = {output: output.as_output() for info in haddock_infos.values() for output in [info.haddock, info.html]},
         arg = struct(
             dyn_cmd = cmd.copy(),
             haddock_infos = haddock_infos,
             link_style = link_style,
             md_file = md_file,
+            toolchain_libs = toolchain_libs,
         ),
     ))
 
