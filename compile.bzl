@@ -348,10 +348,13 @@ def transitive_metadata(actions: AnalysisActions, pkgname: str, packages_info: P
     actions.write_json(dep_units_file, dep_units, pretty = True)
     return dep_units_file
 
+def _make_dep_unit(lib: HaskellLibraryInfo) -> struct:
+    return struct(name = lib.name, build_plan = lib.skeleton)
+
 # Static variant of the dependency unit list for the persistent worker's metadata calculation.
 def direct_metadata_static(actions: AnalysisActions, pkgname: str, libs: list[HaskellLibraryInfo]) -> cmd_args:
     dep_units_file = actions.declare_output("dep-units-static-{}.json".format(pkgname))
-    dep_units = [struct(name = lib.name, build_plan = lib.skeleton) for lib in libs]
+    dep_units = [_make_dep_unit(lib) for lib in libs]
     return cmd_args(
         actions.write_json(dep_units_file, dep_units, with_inputs = True, pretty = True),
         prepend = "--dep-units-static",
@@ -466,10 +469,11 @@ def metadata_unit_args(
 
     if not arg.unit.is_worker_execute:
         ghc_args.add(cmd_args(packages_info.local_packagedb_args, prepend = "-package-db"))
-        ghc_args.add(cmd_args(packages_info.exposed_package_args, hidden = packages_info.local_packagedb_args))
+        ghc_args.add(cmd_args(packages_info.exposed_package_args))
     else:
         # Real local package dbs are not inputs because the worker resolves local package flags against the db
         # built from --dep-units-static data.
+        # ghc_args.add(cmd_args(packages_info.local_packagedb_args, prepend = "-package-db"))
         ghc_args.add(packages_info.exposed_package_args)
 
     ghc_args.add(cmd_args(packages_info.packagedb_args, prepend = "-package-db"))
@@ -813,8 +817,8 @@ def get_packages_info(
 
     extra_libs_args = cmd_args()
     extra_lib_info_transitive = libs.reduce("extra_libs")
-    direct_extra_lib_info = get_extra_lib_info(link_style, direct_extra_libs)
-    extra_lib_info = merge_extra_lib_infos(direct_extra_lib_info, extra_lib_info_transitive)
+    extra_lib_info = get_extra_lib_info(link_style, direct_extra_libs)
+    #extra_lib_info = merge_extra_lib_infos(direct_extra_lib_info, extra_lib_info_transitive)
     link_infos = get_link_infos_from_extra_lib_info(actions, label, linker_info, link_style, extra_lib_info)
     for link_info in link_infos:
         for linkable in link_info.linkables:
