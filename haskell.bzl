@@ -1361,7 +1361,6 @@ def _make_link_package(
 _DynamicLinkBinaryOptions = record(
     label = Label,
     deps = list[Dependency],
-    direct_extra_libs = list[Dependency],
     direct_deps_link_info = list[HaskellLinkInfo],
     direct_deps_lg_tsets = list[HaskellLinkGroupTSet],
     enable_profiling = bool,
@@ -1382,6 +1381,7 @@ _DynamicLinkBinaryOptions = record(
 def _dynamic_link_binary_impl(
         actions: AnalysisActions,
         pkg_deps: ResolvedDynamicValue,
+        extra_lib_dyns: list[ResolvedDynamicValue],
         output: OutputArtifact,
         output_symlink_dir: OutputArtifact | None,
         arg: _DynamicLinkBinaryOptions) -> list[Provider]:
@@ -1391,6 +1391,11 @@ def _dynamic_link_binary_impl(
 
     toolchain_package_db = pkg_deps.providers[DynamicHaskellToolchainPackageDbInfo].toolchain_packages
 
+    # Extra flags that can be dynamically resolved. For example, -rpath /nix/store/...
+    for dyn in extra_lib_dyns:
+        fs = dyn.providers[ExtraGhcLinkerFlagsInfo].flags
+        link_args.add(cmd_args(cmd_args(cmd_args(fs, delimiter = ","), format = "-Wl,{}"), prepend = "-optl"))
+
     link_args.add("-hide-all-packages")
 
     link_group_tset = actions.tset(
@@ -1399,21 +1404,6 @@ def _dynamic_link_binary_impl(
     )
 
     all_link_group_ids = link_group_tset.reduce("components")
-
-    # get all the native library deps wanted from Haskell dependencies transitively.
-    # and link them.
-    extra_lib_info_transitive = arg.haskell_library_tset.reduce("extra_libs")
-    direct_extra_lib_info = get_extra_lib_info(link_style, arg.direct_extra_libs)
-    extra_lib_info = merge_extra_lib_infos(direct_extra_lib_info, extra_lib_info_transitive)
-    link_infos = get_link_infos_from_extra_lib_info(actions, arg.label, arg.linker_info, link_style, extra_lib_info)
-    for link_info in link_infos:
-        for linkable in link_info.linkables:
-            if isinstance(linkable, SharedLibLinkable):
-                link_args.add(cmd_args(linkable.lib, format = "-L{}", parent = 1))
-                link_args.add(cmd_args(get_libname(linkable), format = "-l{}"))
-            else:
-                # TODO(iank): Implement the support for static archives.
-                fail("Unimplemented linkable: {}".format(linkable))
 
     all_toolchain_libs0 = []
     all_toolchain_libs0.extend(arg.toolchain_libs)
@@ -1533,6 +1523,7 @@ _dynamic_link_binary = dynamic_actions(
     attrs = {
         "arg": dynattrs.value(typing.Any),
         "pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
+        "extra_lib_dyns": dynattrs.list(dynattrs.dynamic_value()),
         "output": dynattrs.output(),
         "output_symlink_dir": dynattrs.option(dynattrs.output()),
     },
@@ -1690,20 +1681,44 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     haskell_library_tset = ctx.actions.tset(HaskellLibraryInfoTSet, children = direct_deps_info)
 
+    label = ctx.label
+    linker_info = get_cxx_toolchain_info(ctx).linker_info
+    direct_extra_libs = ctx.attrs.extra_libraries
+
+    # get all the native library deps wanted from Haskell dependencies transitively and link them.
+    extra_lib_info_transitive = haskell_library_tset.reduce("extra_libs")
+    direct_extra_lib_info = get_extra_lib_info(link_style, direct_extra_libs)
+    extra_lib_info = merge_extra_lib_infos(direct_extra_lib_info, extra_lib_info_transitive)
+    link_infos = get_link_infos_from_extra_lib_info(
+        ctx.actions,
+        label,
+        linker_info,
+        link_style,
+        extra_lib_info,
+    )
+    for link_info in link_infos:
+        for linkable in link_info.linkables:
+            if isinstance(linkable, SharedLibLinkable):
+                link_args.add(cmd_args(linkable.lib, format = "-L{}", parent = 1))
+                link_args.add(cmd_args(get_libname(linkable), format = "-l{}"))
+            else:
+                # TODO(iank): Implement the support for static archives.
+                fail("Unimplemented linkable: {}".format(linkable))
+
     ctx.actions.dynamic_output_new(_dynamic_link_binary(
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
+        extra_lib_dyns = extra_lib_info.extra_lib_dyns,
         output = output.as_output(),
         output_symlink_dir = output_symlink_dir.as_output() if output_symlink_dir else None,
         arg = _DynamicLinkBinaryOptions(
-            label = ctx.label,
+            label = label,
             deps = attr_deps(ctx),
-            direct_extra_libs = ctx.attrs.extra_libraries,
             direct_deps_link_info = attr_deps_haskell_link_infos(ctx),
             direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx, link_style),
             enable_profiling = enable_profiling,
             haskell_direct_deps_lib_infos = haskell_direct_deps_lib_infos,
             haskell_toolchain = haskell_toolchain,
-            linker_info = get_cxx_toolchain_info(ctx).linker_info,
+            linker_info = linker_info,
             link_args = link_args,
             link_style = link_style,
             link_haskell_objects_at_once = ctx.attrs.link_haskell_objects_at_once,
