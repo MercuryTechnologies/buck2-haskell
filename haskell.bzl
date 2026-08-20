@@ -1372,9 +1372,10 @@ _DynamicLinkBinaryOptions = record(
     link_style = LinkStyle,
     link_haskell_objects_at_once = bool,
     linker_flags = list[typing.Any],  # Arguments.
-    direct_deps_info = list[HaskellLibraryInfoTSet],
     link_group_libs = list[HaskellLinkGroupInfo],
     toolchain_libs = list[str],
+    # Haskell Library TSet
+    haskell_library_tset = TransitiveSet,
     allow_cache_upload = bool,
 )
 
@@ -1401,8 +1402,7 @@ def _dynamic_link_binary_impl(
 
     # get all the native library deps wanted from Haskell dependencies transitively.
     # and link them.
-    lib_tset = actions.tset(HaskellLibraryInfoTSet, children = arg.direct_deps_info)
-    extra_lib_info_transitive = lib_tset.reduce("extra_libs")
+    extra_lib_info_transitive = arg.haskell_library_tset.reduce("extra_libs")
     direct_extra_lib_info = get_extra_lib_info(link_style, arg.direct_extra_libs)
     extra_lib_info = merge_extra_lib_infos(direct_extra_lib_info, extra_lib_info_transitive)
     link_infos = get_link_infos_from_extra_lib_info(actions, arg.label, arg.linker_info, link_style, extra_lib_info)
@@ -1417,7 +1417,7 @@ def _dynamic_link_binary_impl(
 
     all_toolchain_libs0 = []
     all_toolchain_libs0.extend(arg.toolchain_libs)
-    all_toolchain_libs0.extend([p.name for p in lib_tset.reduce("toolchain_packages")])
+    all_toolchain_libs0.extend([p.name for p in arg.haskell_library_tset.reduce("toolchain_packages")])
     all_toolchain_libs0.extend([p.name for p in link_group_tset.reduce("toolchain_packages")])
     all_toolchain_libs = dedupe_by_value(all_toolchain_libs0)
 
@@ -1448,7 +1448,7 @@ def _dynamic_link_binary_impl(
     # linking. Therefore, we set package db dependencies to use empty_db (module-object-only
     # packages)
     if arg.link_haskell_objects_at_once:  # when link_haskell_objects_at_once = True
-        for hlib in lib_tset.traverse():
+        for hlib in arg.haskell_library_tset.traverse():
             # Add all the transitive objects except for those in link group.
             # for now, only non-profiled binary
             is_profiled = False
@@ -1456,7 +1456,7 @@ def _dynamic_link_binary_impl(
                 object_args.add(hlib.objects[is_profiled])
 
     else:  # when link_haskell_objects_at_once = False
-        for hlib in lib_tset.traverse():
+        for hlib in arg.haskell_library_tset.traverse():
             if hlib.name not in all_link_group_ids:
                 packagedb_args.add(cmd_args(hlib.db))
                 link_cmd_hidden.append(hlib.libs)
@@ -1489,15 +1489,11 @@ def _dynamic_link_binary_impl(
     # TODO: this must be interleaved with the above.
     if arg.link_style == LinkStyle("shared"):
         shlib_entries = []
-        hlib_tset = actions.tset(
-            HaskellLibraryInfoTSet,
-            children = [li.info[arg.link_style] for li in arg.direct_deps_link_info],
-        )
         components = link_group_tset.reduce("components")
         for x in link_group_tset.traverse():
             shlib_entries.append((x.lib.basename, x.lib))
         if not arg.link_haskell_objects_at_once:
-            for x in hlib_tset.traverse():
+            for x in arg.haskell_library_tset.traverse():
                 if x.name not in components:
                     shlib_entries.extend([(lib.basename, lib) for lib in x.libs])
 
@@ -1692,6 +1688,8 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
     else:
         output_symlink_dir = None
 
+    haskell_library_tset = ctx.actions.tset(HaskellLibraryInfoTSet, children = direct_deps_info)
+
     ctx.actions.dynamic_output_new(_dynamic_link_binary(
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
         output = output.as_output(),
@@ -1710,9 +1708,9 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             link_style = link_style,
             link_haskell_objects_at_once = ctx.attrs.link_haskell_objects_at_once,
             linker_flags = ctx.attrs.linker_flags,
-            direct_deps_info = direct_deps_info,
             link_group_libs = link_group_libs,
             toolchain_libs = toolchain_libs,
+            haskell_library_tset = haskell_library_tset,
             allow_cache_upload = ctx.attrs.allow_cache_upload,
         ),
     ))
