@@ -18,8 +18,8 @@ def _split_configuration(platform: PlatformInfo, refs: struct) -> dict[str, Plat
 _two_configurations = transition(
     impl = _split_configuration,
     refs = {
-        "first": "buck2-haskell//tests/build_tests/worker_configurations:worker_configuration_first",
-        "second": "buck2-haskell//tests/build_tests/worker_configurations:worker_configuration_second",
+        "first": "buck2-haskell//tests/build_tests/worker/configurations:worker_configuration_first",
+        "second": "buck2-haskell//tests/build_tests/worker/configurations:worker_configuration_second",
     },
     split = True,
 )
