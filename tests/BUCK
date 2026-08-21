@@ -19,6 +19,7 @@ load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
     "hspec",
     "hspec-expectations",
     "inspection-testing",
+    "primitive",
     "process",
     # keep-sorted end
 ]]
