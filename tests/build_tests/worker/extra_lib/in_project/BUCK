@@ -1,0 +1,67 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_library",
+)
+load(":wrap_cxx.bzl", "wrap_cxx")
+
+native.cxx_library(
+    name = "clib_cxx",
+    srcs = ["cbits/clib.c"],
+    headers = ["cbits/clib.h"],
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+)
+
+wrap_cxx(
+    name = "clib",
+    wrapped = ":clib_cxx",
+)
+
+haskell_library(
+    name = "libA",
+    srcs = [
+        "src/A.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+    ],
+    extra_libraries = [":clib"],
+    allow_worker = True,
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_library(
+    name = "libB",
+    srcs = [
+        "src/B.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libA",
+    ],
+    allow_worker = True,
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_binary(
+    name = "exe",
+    srcs = ["app/Main.hs"],
+    strip_prefix = ["app"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libB",
+    ],
+    allow_worker = True,
+    _worker = "toolchains//:persistent_worker",
+)
+
+sh_test(
+    name = "test_in_proj_ffi",
+    test = ":exe"
+)
