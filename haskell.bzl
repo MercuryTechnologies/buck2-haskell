@@ -1196,7 +1196,15 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         sub_targets["metadata"] = [DefaultInfo(default_output = def_md_file)]
 
     actual_link_style = _get_actual_link_style(ctx, preferred_linkage)
-    default_output = hlib_infos[actual_link_style].libs
+
+    default_compiled = non_profiling_hlib[actual_link_style].compiled
+    manifest_outputs = default_compiled.interfaces + default_compiled.objects
+    manifest = ctx.actions.write("manifest.txt", cmd_args(manifest_outputs))
+    manifest = manifest.with_associated_artifacts(manifest_outputs)
+    sub_targets["manifest"] = [DefaultInfo(
+        default_output = manifest,
+        other_outputs = manifest_outputs,
+    )]
 
     haddock = haskell_haddock_lib(
         ctx,
@@ -1240,7 +1248,8 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         def_info = DefaultInfo()
     else:
         def_info = DefaultInfo(
-            default_outputs = default_output,
+            default_outputs = [manifest],
+            other_outputs = manifest_outputs,
             sub_targets = sub_targets,
         )
     providers = [
