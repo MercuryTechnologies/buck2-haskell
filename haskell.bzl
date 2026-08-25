@@ -942,8 +942,8 @@ def _build_haskell_lib(
             False: non_profiling_hlib.compiled.module_tsets,
         }
         interface_artifacts = {
-            True: compiled.interfaces,
-            False: non_profiling_hlib.compiled.interfaces,
+            True: compiled.interfaces + compiled.extra_interfaces,
+            False: non_profiling_hlib.compiled.interfaces + non_profiling_hlib.compiled.extra_interfaces,
         }
         object_artifacts = {
             True: compiled.objects,
@@ -960,7 +960,7 @@ def _build_haskell_lib(
             False: compiled.module_tsets,
         }
         interface_artifacts = {
-            False: compiled.interfaces,
+            False: compiled.interfaces + compiled.extra_interfaces,
         }
         object_artifacts = {
             False: compiled.objects,
