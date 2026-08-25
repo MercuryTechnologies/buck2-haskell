@@ -2,7 +2,7 @@
 
 void print_from_clib(void) {
 
-    printf("print_from_clib");
+    printf("print_from_clib\n");
 
 }
 

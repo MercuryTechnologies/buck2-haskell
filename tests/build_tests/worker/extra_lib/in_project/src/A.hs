@@ -3,4 +3,4 @@
 module A where
 
 foreign import ccall safe "print_from_clib"
-  print_from_clib :: IO ()
+  c_print_from_clib :: IO ()
