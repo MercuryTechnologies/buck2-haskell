@@ -1526,6 +1526,7 @@ def _compile_module(
         identifier = module_name,
         dep_files = dep_files,
         allow_cache_upload = allow_cache_upload,
+        allow_dep_file_cache_upload = allow_cache_upload,
         **worker_args
     )
 
