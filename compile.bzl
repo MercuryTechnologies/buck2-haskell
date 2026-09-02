@@ -35,7 +35,6 @@ load(
     "HaskellLibraryInfoTSet",
     "HaskellLibraryProvider",
     "get_libname",
-    "merge_extra_lib_infos",
 )
 load(
     ":link_info.bzl",
@@ -44,6 +43,8 @@ load(
     "HaskellLinkGroupProvider",
     "HaskellLinkInfo",
     "get_link_infos_from_extra_lib_info",
+    "make_extra_libraries_tset",
+    "traverse_extra_libraries",
 )
 load(
     ":toolchain.bzl",
@@ -812,9 +813,15 @@ def get_packages_info(
             exposed_package_args.add(hidden_args)
 
     extra_libs_args = cmd_args()
-    extra_lib_info_transitive = libs.reduce("extra_libs")
-    direct_extra_lib_info = get_extra_lib_info(link_style, direct_extra_libs)
-    extra_lib_info = merge_extra_lib_infos(direct_extra_lib_info, extra_lib_info_transitive)
+    extra_libraries = make_extra_libraries_tset(
+        actions,
+        extra_libraries = direct_extra_libs,
+        haskell_libraries = direct_deps_link_info,
+    )
+    extra_lib_info = get_extra_lib_info(
+        link_style,
+        traverse_extra_libraries(extra_libraries),
+    )
     link_infos = get_link_infos_from_extra_lib_info(actions, label, linker_info, link_style, extra_lib_info)
     for link_info in link_infos:
         for linkable in link_info.linkables:

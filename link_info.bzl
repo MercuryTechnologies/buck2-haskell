@@ -18,13 +18,15 @@ load(
     "to_link_strategy",
 )
 load("@prelude//utils:arglike.bzl", "ArgLike")
-load("@prelude//utils:utils.bzl", "flatten")
+load("@prelude//utils:utils.bzl", "dedupe_by_value", "flatten")
 load(
     ":library_info.bzl",
     "HaskellLibraryInfo",
     "HaskellLibraryInfoTSet",
 )
 load(":toolchain.bzl", "HaskellToolchainLibrary")
+
+ExtraLibrariesTSet = transitive_set()
 
 # A list of `HaskellLibraryInfo`s.
 HaskellLinkInfo = provider(
@@ -33,8 +35,22 @@ HaskellLinkInfo = provider(
         "info": provider_field(dict[LinkStyle, HaskellLibraryInfoTSet]),
         "prof_info": provider_field(dict[LinkStyle, HaskellLibraryInfoTSet]),
         "extra": provider_field(dict[LinkStyle, list[Artifact]]),
+        "extra_libraries": provider_field(ExtraLibrariesTSet),
     },
 )
+
+def make_extra_libraries_tset(
+        actions: AnalysisActions,
+        extra_libraries: list[Dependency],
+        haskell_libraries: list[HaskellLinkInfo]) -> ExtraLibrariesTSet:
+    return actions.tset(
+        ExtraLibrariesTSet,
+        value = extra_libraries,
+        children = [library.extra_libraries for library in haskell_libraries],
+    )
+
+def traverse_extra_libraries(extra_libraries: ExtraLibrariesTSet) -> list[Dependency]:
+    return dedupe_by_value(flatten(list(extra_libraries.traverse())))
 
 # A record of a Haskell link group info
 HaskellLinkGroupInfo = record(

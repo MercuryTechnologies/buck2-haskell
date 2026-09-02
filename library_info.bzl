@@ -50,9 +50,6 @@ HaskellLibraryInfo = record(
     # HIE files indexed by profiling enabled/disabled
     hie_files = dict[bool, list[Artifact]],
     stub_dirs = list[Artifact],
-    # extra non-Haskell libraries
-    extra_libraries = field(ExtraLibraryInfo, ExtraLibraryInfo(as_deps = [], extra_libs = [], extra_lib_dyns = [])),
-
     # resultant libraries
     libs = field(list[Artifact], []),
     # Package version, used to specify the full package when exposing it,
@@ -115,26 +112,6 @@ def _get_toolchain_packages(
         flatted.extend(lib.toolchain_dependencies)
     return dedupe_by_value(flatted)
 
-def _get_extra_lib_infos(
-        children: list[ExtraLibraryInfo],
-        lib: HaskellLibraryInfo | None) -> ExtraLibraryInfo:
-     as_deps = []
-     extra_libs = []
-     extra_lib_dyns = []
-     if lib:
-         as_deps.extend(lib.extra_libraries.as_deps)
-         extra_libs.extend(lib.extra_libraries.extra_libs)
-         extra_lib_dyns.extend(lib.extra_libraries.extra_lib_dyns)
-     for x in children:
-         as_deps.extend(x.as_deps)
-         extra_libs.extend(x.extra_libs)
-         extra_lib_dyns.extend(x.extra_lib_dyns)
-     return ExtraLibraryInfo(
-         as_deps = dedupe_by_value(as_deps),
-         extra_libs = dedupe_by_value(extra_libs),
-         extra_lib_dyns = dedupe_by_value(extra_lib_dyns),
-     )
-
 def _json_as_dep_units(lib: HaskellLibraryInfo) -> struct:
     return struct(
         name = lib.name,
@@ -152,7 +129,6 @@ HaskellLibraryInfoTSet = transitive_set(
     reductions = {
         "packages": _get_package_deps,
         "toolchain_packages": _get_toolchain_packages,
-        "extra_libs": _get_extra_lib_infos,
     },
     json_projections = {
         "dep_units": _json_as_dep_units,
@@ -174,10 +150,3 @@ HaskellSourceInfo = provider(
 # `../linking/link_info.bzl` does as well!
 def get_libname(linkable):
     return (linkable.lib.basename.removeprefix("lib").removesuffix(linkable.lib.extension))
-
-def merge_extra_lib_infos(x: ExtraLibraryInfo, y: ExtraLibraryInfo) -> ExtraLibraryInfo:
-    return ExtraLibraryInfo (
-        as_deps = dedupe_by_value(x.as_deps + y.as_deps),
-        extra_libs = dedupe_by_value(x.extra_libs + y.extra_libs),
-        extra_lib_dyns = dedupe_by_value(x.extra_lib_dyns + y.extra_lib_dyns),
-    )

@@ -79,7 +79,6 @@ load(
     "HaskellSourceInfo",
     "HaskellSourcesTSet",
     "get_libname",
-    "merge_extra_lib_infos",
 )
 load(
     ":link_info.bzl",
@@ -93,6 +92,8 @@ load(
     "attr_link_style",
     "cxx_toolchain_link_style",
     "get_link_infos_from_extra_lib_info",
+    "make_extra_libraries_tset",
+    "traverse_extra_libraries",
 )
 load(":pkg_conf.bzl", "append_pkg_conf_link_fields_for_link_infos")
 load(":resources.bzl", "haskell_attr_resources")
@@ -259,6 +260,11 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
     prof_hlibinfos = {}
     hlinkinfos = {}
     prof_hlinkinfos = {}
+    extra_libraries = make_extra_libraries_tset(
+        ctx.actions,
+        extra_libraries = [],
+        haskell_libraries = haskell_infos,
+    )
 
     for link_style in LinkStyle:
         libs = _get_haskell_prebuilt_libs(ctx, link_style, False)
@@ -321,6 +327,7 @@ def haskell_prebuilt_library_impl(ctx: AnalysisContext) -> list[Provider]:
     haskell_link_infos = HaskellLinkInfo(
         info = hlinkinfos,
         prof_info = prof_hlinkinfos,
+        extra_libraries = extra_libraries,
     )
     haskell_lib_provider = HaskellLibraryProvider(
         lib = hlibinfos,
@@ -1025,7 +1032,6 @@ def _build_haskell_lib(
         objects = object_artifacts,
         hie_files = hie_artifacts,
         stub_dirs = stub_dirs,
-        extra_libraries = extra_lib_info,
         libs = all_libs,
         version = "1.0.0",
         is_prebuilt = False,
@@ -1074,6 +1080,11 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
     # Get haskell and native link infos from all deps
     hlis = attr_deps_haskell_link_infos_sans_template_deps(ctx)
     nlis = attr_deps_merged_link_infos(ctx)
+    extra_libraries = make_extra_libraries_tset(
+        ctx.actions,
+        extra_libraries = ctx.attrs.extra_libraries,
+        haskell_libraries = hlis,
+    )
 
     link_infos = {}
     hlib_infos = {}
@@ -1262,6 +1273,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
             info = hlink_infos,
             prof_info = prof_hlink_infos,
             extra = extra,
+            extra_libraries = extra_libraries,
         ),
         haddock,
     ]
@@ -1692,12 +1704,18 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
 
     label = ctx.label
     linker_info = get_cxx_toolchain_info(ctx).linker_info
-    direct_extra_libs = ctx.attrs.extra_libraries
 
-    # get all the native library deps wanted from Haskell dependencies transitively and link them.
-    extra_lib_info_transitive = haskell_library_tset.reduce("extra_libs")
-    direct_extra_lib_info = get_extra_lib_info(link_style, direct_extra_libs)
-    extra_lib_info = merge_extra_lib_infos(direct_extra_lib_info, extra_lib_info_transitive)
+    # Get all the native library deps wanted from Haskell dependencies
+    # transitively, materializing the graph only at the link action.
+    extra_libraries = make_extra_libraries_tset(
+        ctx.actions,
+        extra_libraries = ctx.attrs.extra_libraries,
+        haskell_libraries = attr_deps_haskell_link_infos(ctx),
+    )
+    extra_lib_info = get_extra_lib_info(
+        link_style,
+        traverse_extra_libraries(extra_libraries),
+    )
     link_infos = get_link_infos_from_extra_lib_info(
         ctx.actions,
         label,
@@ -2074,7 +2092,8 @@ def make_haskell_link_group(
         for output_style in get_output_styles_for_linkage(preferred_linkage):
             link_style = legacy_output_style_to_link_style(output_style)
             hlibinfos = [p.lib[link_style] for p in hlibs]
-            direct_deps_info = [lib.info[link_style] for lib in attr_deps_haskell_link_infos_sans_template_deps(ctx)]
+            direct_haskell_link_infos = attr_deps_haskell_link_infos_sans_template_deps(ctx)
+            direct_deps_info = [lib.info[link_style] for lib in direct_haskell_link_infos]
             direct_deps_lg_tsets = attr_deps_haskell_link_group_tsets(ctx, link_style)
 
             actions = ctx.actions
@@ -2116,8 +2135,12 @@ def make_haskell_link_group(
 
             pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None
 
-            # collect all the extra library dependencies from component Haskell libraries
-            direct_extra_libs = [elib for p in hlibs for elib in p.lib[link_style].extra_libraries.as_deps]
+            extra_libraries = make_extra_libraries_tset(
+                ctx.actions,
+                extra_libraries = [],
+                haskell_libraries = direct_haskell_link_infos,
+            )
+            direct_extra_libs = traverse_extra_libraries(extra_libraries)
             link_args = get_link_args_for_strategy(
                 ctx.actions,
                 ctx.label,

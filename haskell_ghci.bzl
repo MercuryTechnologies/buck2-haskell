@@ -76,7 +76,11 @@ load(
     "HaskellSourceInfo",
     "HaskellSourcesTSet",
 )
-load(":link_info.bzl", "HaskellLinkInfo")
+load(
+    ":link_info.bzl",
+    "HaskellLinkInfo",
+    "make_extra_libraries_tset",
+)
 load(
     ":toolchain.bzl",
     "DynamicHaskellToolchainPackageDbInfo",
@@ -1278,6 +1282,11 @@ def haskell_ghci_impl(ctx: AnalysisContext) -> list[Provider]:
                 info = {link_style: hlink_tset},
                 prof_info = {link_style: ctx.actions.tset(HaskellLibraryInfoTSet)},
                 extra = {},
+                extra_libraries = make_extra_libraries_tset(
+                    ctx.actions,
+                    extra_libraries = ctx.attrs.extra_libraries,
+                    haskell_libraries = attr_deps_haskell_link_infos(ctx),
+                ),
             ),
         ]
 
