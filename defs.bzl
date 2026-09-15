@@ -161,6 +161,13 @@ def _plugins_arg():
 """),
     }
 
+def _link_weight_arg():
+    return {
+        "link_weight": attrs.option(attrs.int(), default = None, doc = """
+    Weight for haskell_link action. Default value = 1.
+"""),
+    }
+
 haskell_common = struct(
     srcs_arg = _srcs_arg,
     deps_arg = _deps_arg,
@@ -177,6 +184,7 @@ haskell_common = struct(
     allow_cache_upload_arg = _allow_cache_upload_arg,
     resources_arg = _resources_arg,
     plugins_arg = _plugins_arg,
+    link_weight_arg = _link_weight_arg,
 )
 
 _common_binary_attrs = (
@@ -208,6 +216,7 @@ _common_binary_attrs = (
     haskell_common.strip_prefix_arg() |
     haskell_common.incremental_arg() |
     haskell_common.allow_cache_upload_arg() |
+    haskell_common.link_weight_arg() |
     {
         "contacts": attrs.list(attrs.string(), default = []),
         "default_host_platform": attrs.option(attrs.configuration_label(), default = None),
@@ -480,6 +489,7 @@ haskell_library = rule(
         haskell_common.strip_prefix_arg() |
         haskell_common.incremental_arg() |
         haskell_common.allow_cache_upload_arg() |
+        haskell_common.link_weight_arg() |
         native_common.link_whole(link_whole_type = attrs.bool(default = False)) |
         native_common.preferred_linkage(preferred_linkage_type = attrs.enum(Linkage.values())) |
         {

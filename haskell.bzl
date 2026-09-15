@@ -648,6 +648,7 @@ _DynamicLinkSharedOptions = record(
     project_libs_full = list[HaskellLibraryInfo],
     worker_target_id = str,
     allow_cache_upload = bool,
+    link_weight = int | None,
 )
 
 def _dynamic_link_shared_impl(
@@ -736,11 +737,18 @@ def _dynamic_link_shared_impl(
         hidden = link_cmd_hidden,
     )
 
+    # Weight for haskell_link action can be adjusted to limit resource.
+    if arg.link_weight:
+        link_weight = arg.link_weight
+    else:
+        link_weight = 1
+
     actions.run(
         link_cmd,
         category = "haskell_link_" + arg.artifact_suffix.replace("-", "_"),
         # explicit turn this on for local_only actions to upload their results.
         allow_cache_upload = arg.allow_cache_upload,
+        weight = link_weight,
     )
 
     return []
@@ -899,6 +907,7 @@ def _build_haskell_lib(
                 worker_target_id = pkgname,
                 link_args = link_args,
                 allow_cache_upload = ctx.attrs.allow_cache_upload,
+                link_weight = ctx.attrs.link_weight,
             ),
         ))
 
@@ -1391,6 +1400,7 @@ _DynamicLinkBinaryOptions = record(
     link_args = cmd_args,
     link_style = LinkStyle,
     link_haskell_objects_at_once = bool,
+    link_weight = int | None,
     linker_flags = list[typing.Any],  # Arguments.
     link_group_libs = list[HaskellLinkGroupInfo],
     toolchain_libs = list[str],
@@ -1530,11 +1540,18 @@ def _dynamic_link_binary_impl(
                 shlibs_dict,
             )
 
+    # Weight for haskell_link action can be adjusted to limit resource.
+    if arg.link_weight:
+        link_weight = arg.link_weight
+    else:
+        link_weight = 1
+
     actions.run(
         link_cmd,
         category = "haskell_link",
         # explicit turn this on for local_only actions to upload their results.
         allow_cache_upload = arg.allow_cache_upload,
+        weight = link_weight,
     )
 
     return []
@@ -1749,6 +1766,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             link_args = link_args,
             link_style = link_style,
             link_haskell_objects_at_once = ctx.attrs.link_haskell_objects_at_once,
+            link_weight = ctx.attrs.link_weight,
             linker_flags = ctx.attrs.linker_flags,
             link_group_libs = link_group_libs,
             toolchain_libs = toolchain_libs,
