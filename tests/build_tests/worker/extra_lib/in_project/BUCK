@@ -29,7 +29,6 @@ haskell_library(
         "//tests:base",
     ],
     extra_libraries = [":clib"],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 
@@ -44,7 +43,6 @@ haskell_library(
         "//tests:base",
         ":libA",
     ],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 
@@ -57,7 +55,6 @@ haskell_binary(
         "//tests:base",
         ":libB",
     ],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 
@@ -95,7 +92,6 @@ haskell_library(
         "//tests:base",
     ],
     extra_libraries = [":clib_2"],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 
@@ -110,7 +106,6 @@ haskell_library(
         "//tests:base",
         ":libC",
     ],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 
@@ -123,7 +118,6 @@ haskell_binary(
         "//tests:base",
         ":libD",
     ],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 

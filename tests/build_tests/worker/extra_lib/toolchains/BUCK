@@ -17,7 +17,6 @@ haskell_library(
     extra_libraries = [
         "@toolchains//:zlib",
     ],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 
@@ -32,7 +31,6 @@ haskell_library(
         "//tests:base",
         ":libA",
     ],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 
@@ -45,7 +43,6 @@ haskell_binary(
         "//tests:base",
         ":libB",
     ],
-    allow_worker = True,
     _worker = "toolchains//:persistent_worker",
 )
 
