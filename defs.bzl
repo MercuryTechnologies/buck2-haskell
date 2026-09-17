@@ -65,13 +65,27 @@ def _exported_linker_flags_arg():
     }
 
 def _worker_attr():
+    description = """
+        A persistent worker to use for this rule. Only used if ghc_worker.enable is set to true
+        and allow_worker is not set to False.
+
+        If ghc_worker.per_configuration is set to true, different workers will be spawned for
+        different target/exec configurations. Otherwise a same worker may be used for different
+        configurations.
+    """
     if worker_per_configuration():
         # One provider per target/exec configuration pair prevents GHC state
         # from leaking while preserving the consumer's selected exec platform.
-        return attrs.option(attrs.toolchain_dep(providers = [WorkerInfo]), default = None)
+        return attrs.option(attrs.toolchain_dep(providers = [WorkerInfo]), default = None, doc = description)
     # This escape hatch saves memory but is unsound when a build compiles
     # Haskell under more than one target configuration.
-    return attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None)
+    return attrs.option(attrs.exec_dep(providers = [WorkerInfo]), default = None, doc = description)
+
+def _allow_worker_attr():
+    return attrs.bool(default = True, doc = """
+        Let the worker run for this rule. Allowed by default.
+        Has no effect if the _worker attribute is not set or if ghc_worker.enable is set to false.
+    """)
 
 def _scripts_arg():
     return {
@@ -230,7 +244,7 @@ _common_binary_attrs = (
         "linker_flags": attrs.list(attrs.arg(), default = []),
         "platform": attrs.option(attrs.string(), default = None),
         "platform_linker_flags": attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.arg())), default = []),
-        "allow_worker": attrs.bool(default = True),
+        "allow_worker": _allow_worker_attr(),
         "link_haskell_objects_at_once": attrs.bool(
             default = False,
             doc = """
@@ -349,7 +363,7 @@ haskell_ghci = rule(
             "preload_deps": attrs.set(attrs.dep(), sorted = True, default = []),
             "srcs": attrs.named_set(attrs.source(), sorted = True, default = []),
             "srcs_deps": attrs.dict(attrs.source(), attrs.list(attrs.source()), default = {}),
-            "allow_worker": attrs.bool(default = True),
+            "allow_worker": _allow_worker_attr(),
 
             # extra needed (from rules_impl.bzl)
             "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
@@ -505,7 +519,7 @@ haskell_library = rule(
             "platform": attrs.option(attrs.string(), default = None),
             "platform_linker_flags": attrs.list(attrs.tuple(attrs.regex(), attrs.list(attrs.arg())), default = []),
             "use_same_package_name": attrs.bool(default = False),
-            "allow_worker": attrs.bool(default = True),
+            "allow_worker": _allow_worker_attr(),
             "no_default_info": attrs.bool(default = False),
 
             # extra needed (from rules_impl.bzl)
