@@ -14,7 +14,7 @@ def _persistent_worker_impl(ctx: AnalysisContext) -> list[Provider]:
         # buck-proxy otherwise routes every Buck worker to its default
         # "singleton" GHC socket, recombining the configurations downstream.
         configuration_hash = str(ctx.label.configured_target().config()).split("#")[-1]
-        cmd.add("--socket-name", configuration_hash)
+        cmd.add("--proxy-instance", configuration_hash)
     cmd.add("--")
     cmd.add(ctx.attrs.worker_args)
     return [DefaultInfo(), WorkerInfo(cmd)]
