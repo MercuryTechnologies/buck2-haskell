@@ -33,10 +33,10 @@ _shared_persistent_worker = rule(
 _per_configuration_persistent_worker = rule(
     impl = _persistent_worker_impl,
     attrs = {
-        # Toolchain deps inherit the consumer's resolved execution platform,
-        # so these do not perform an independent nested resolution.
-        "worker": attrs.exec_dep(providers = [RunInfo]),
-        "worker_proxy": attrs.exec_dep(providers = [RunInfo]),
+        # Due to TH, the persistent worker needs to be on the same platform as target.
+        # so instead of exec_dep, we use dep.
+        "worker": attrs.dep(providers = [RunInfo]),
+        "worker_proxy": attrs.dep(providers = [RunInfo]),
         "proxy_args": attrs.list(attrs.arg(), default = []),
         "worker_args": attrs.list(attrs.arg(), default = []),
     },
