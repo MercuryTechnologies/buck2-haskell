@@ -37,12 +37,6 @@ def main():
         help="Path to a package db that is used during the module compilation",
     )
     parser.add_argument(
-        "--worker-target-id", required=False, type=str, help="worker target id",
-    )
-    parser.add_argument(
-        "--worker-close", required=False, type=bool, default=False, help="worker close",
-    )
-    parser.add_argument(
         "--ghc", required=True, type=str, help="Path to the Haskell compiler GHC."
     )
     parser.add_argument(
@@ -87,42 +81,10 @@ def main():
         default=[],
         help="Extra environment variable value",
     )
-    parser.add_argument(
-        "--close-input",
-        required=False,
-        help="for close mode.",
-    )
-    parser.add_argument(
-        "--close-output",
-        required=False,
-        help="for close mode.",
-    )
 
     args, ghc_args = parser.parse_known_args()
 
-    if args.worker_close:
-        print("worker-close is called", file=sys.stderr)
-        print("close_input = {}".format(args.close_input))
-        print("close_output = {}".format(args.close_output))
-        # write an empty close_output file
-        try:
-            with open(args.close_output, "w") as f:
-                f.write("\n")
-
-        except Exception as e:
-            # remove incomplete file
-            os.remove(args.close_output)
-            raise e
-        return 0
-
-    if args.worker_target_id:
-        worker_args = ["--worker-target-id={}".format(args.worker_target_id)] + (["--worker-close"] if args.worker_close else [])
-        use_persistent_workers = True
-    else:
-        worker_args = []
-        use_persistent_workers = False
-
-    cmd = [args.ghc] + worker_args + ghc_args + (["@" + args.ghc_argsfile] if args.ghc_argsfile else [])
+    cmd = [args.ghc] + ghc_args + (["@" + args.ghc_argsfile] if args.ghc_argsfile else [])
 
     aux_paths = [str(binpath) for binpath in args.bin_path if binpath.is_dir()] + [str(os.path.dirname(binexepath)) for binexepath in args.bin_exe]
     env = os.environ.copy()
@@ -145,7 +107,7 @@ def main():
     if returncode != 0:
         return returncode
 
-    recompute_abi_hash(args.ghc, args.abi_out, use_persistent_workers)
+    recompute_abi_hash(args.ghc, args.abi_out)
 
     if args.buck2_dep:
         # write an empty dep file, to signal that all tagged files are unused
@@ -175,16 +137,12 @@ def main():
     return 0
 
 
-def recompute_abi_hash(ghc, abi_out, use_persistent_workers):
+def recompute_abi_hash(ghc, abi_out):
     """Call ghc on the hi file and write the ABI hash to abi_out."""
     if abi_out:
         hi_file = abi_out.with_suffix("")
-        if use_persistent_workers:
-            worker_args = ["--worker-target-id=show-iface-abi-hash"]
-        else:
-            worker_args = []
 
-        cmd = [ghc, "-v0", "-package-env=-", "--show-iface-abi-hash", hi_file] + worker_args
+        cmd = [ghc, "-v0", "-package-env=-", "--show-iface-abi-hash", hi_file]
 
         hash = subprocess.check_output(cmd, text=True).split(maxsplit=1)[0]
 
