@@ -580,6 +580,7 @@ def _dynamic_target_metadata_impl(
             identifier = arg.suffix if arg.suffix else None,
             exe = WorkerRunInfo(worker = arg.worker),
             allow_cache_upload = arg.allow_cache_upload,
+            local_only = True,  # XXX only use local execution for now
         )
     else:
         md_args = cmd_args()
@@ -615,6 +616,7 @@ def _dynamic_target_metadata_impl(
             category = "haskell_metadata",
             identifier = arg.suffix if arg.suffix else None,
             allow_cache_upload = arg.allow_cache_upload,
+            local_only = True,  # XXX only use local execution for now
         )
 
     return []
