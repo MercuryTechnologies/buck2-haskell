@@ -476,7 +476,6 @@ def metadata_unit_args(
 
     ghc_args.add(cmd_args(packages_info.packagedb_args, prepend = "-package-db"))
     ghc_args.add("-fprefer-byte-code")
-    ghc_args.add("-fpackage-db-byte-code")
     ghc_args.add(packages_info.extra_libs_args)
 
     buck2_args = unit_buck2_args(actions, arg.unit)
@@ -1247,7 +1246,6 @@ def _compile_oneshot_args(
 
     if enable_th:
         args.add("-fprefer-byte-code")
-        args.add("-fpackage-db-byte-code")
 
     if module.stub_dir != None:
         stubs = outputs_dict[module.stub_dir]
