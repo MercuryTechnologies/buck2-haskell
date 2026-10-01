@@ -77,4 +77,3 @@ haskell_library(
     deps = [":base"],
     allow_worker = False,
 )
-

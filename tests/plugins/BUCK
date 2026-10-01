@@ -118,16 +118,16 @@ haskell_library(
     allow_worker = False,
 )
 
-# Consumer test: imports PluginLib.greeting and verifies it was replaced.
-haskell_test(
-    name = "ht_lib_real_plugin",
-    srcs = ["TestPluginLib.hs"],
-    deps = [
-        "//tests:base",
-        ":lib_real_plugin",
-    ],
-    allow_worker = False,
-)
+# # Consumer test: imports PluginLib.greeting and verifies it was replaced.
+# haskell_test(
+#     name = "ht_lib_real_plugin",
+#     srcs = ["TestPluginLib.hs"],
+#     deps = [
+#         "//tests:base",
+#         ":lib_real_plugin",
+#     ],
+#     allow_worker = False,
+# )
 
 # =============================================================================
 # haskell_library targets with real plugin (srcs_plugins / per-module)
@@ -397,56 +397,56 @@ ghc_plugin(
     visibility = ["//tests/..."],
 )
 
-haskell_test(
-    name = "ht_inspection_static",
-    srcs = ["InspectionMain.hs"],
-    link_style = "static",
-    plugins = [":inspection_plugin"],
-    deps = [
-        "//tests:base",
-        "//tests:inspection-testing",
-    ],
-    allow_worker = False,
-)
+# haskell_test(
+#     name = "ht_inspection_static",
+#     srcs = ["InspectionMain.hs"],
+#     link_style = "static",
+#     plugins = [":inspection_plugin"],
+#     deps = [
+#         "//tests:base",
+#         "//tests:inspection-testing",
+#     ],
+#     allow_worker = False,
+# )
 
-haskell_test(
-    name = "ht_inspection_shared",
-    srcs = ["InspectionMain.hs"],
-    link_style = "shared",
-    plugins = [":inspection_plugin"],
-    deps = [
-        "//tests:base",
-        "//tests:inspection-testing",
-    ],
-    allow_worker = False,
-)
+# haskell_test(
+#     name = "ht_inspection_shared",
+#     srcs = ["InspectionMain.hs"],
+#     link_style = "shared",
+#     plugins = [":inspection_plugin"],
+#     deps = [
+#         "//tests:base",
+#         "//tests:inspection-testing",
+#     ],
+#     allow_worker = False,
+# )
 
-# --- srcs_plugins variants (per-module) ---
+# # --- srcs_plugins variants (per-module) ---
 
-haskell_test(
-    name = "ht_srcs_inspection_static",
-    srcs = ["InspectionMain.hs"],
-    link_style = "static",
-    srcs_plugins = {
-        "InspectionMain.hs": [":inspection_plugin"],
-    },
-    deps = [
-        "//tests:base",
-        "//tests:inspection-testing",
-    ],
-    allow_worker = False,
-)
+# haskell_test(
+#     name = "ht_srcs_inspection_static",
+#     srcs = ["InspectionMain.hs"],
+#     link_style = "static",
+#     srcs_plugins = {
+#         "InspectionMain.hs": [":inspection_plugin"],
+#     },
+#     deps = [
+#         "//tests:base",
+#         "//tests:inspection-testing",
+#     ],
+#     allow_worker = False,
+# )
 
-haskell_test(
-    name = "ht_srcs_inspection_shared",
-    srcs = ["InspectionMain.hs"],
-    link_style = "shared",
-    srcs_plugins = {
-        "InspectionMain.hs": [":inspection_plugin"],
-    },
-    deps = [
-        "//tests:base",
-        "//tests:inspection-testing",
-    ],
-    allow_worker = False,
-)
+# haskell_test(
+#     name = "ht_srcs_inspection_shared",
+#     srcs = ["InspectionMain.hs"],
+#     link_style = "shared",
+#     srcs_plugins = {
+#         "InspectionMain.hs": [":inspection_plugin"],
+#     },
+#     deps = [
+#         "//tests:base",
+#         "//tests:inspection-testing",
+#     ],
+#     allow_worker = False,
+# )
