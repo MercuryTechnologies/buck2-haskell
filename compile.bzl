@@ -1547,7 +1547,7 @@ def _compile_module(
         identifier = module_name,
         dep_files = dep_files,
         allow_cache_upload = allow_cache_upload,
-        allow_dep_file_cache_upload = allow_cache_upload,
+        allow_dep_file_cache_upload = allow_cache_upload and haskell_toolchain.use_remote_dep_file_cache,
         **worker_args
     )
 
