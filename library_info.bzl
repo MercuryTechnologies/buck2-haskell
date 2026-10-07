@@ -59,9 +59,6 @@ HaskellLibraryInfo = record(
     is_prebuilt = bool,
     profiling_enabled = bool,
 
-    # All dependencies (untyped) = in-project deps + toolchain deps
-    # TODO: Make this typed by separating out in-project deps.
-    dependencies = list[str],
     # Toolchain package dependencies
     toolchain_dependencies = list[HaskellToolchainLibrary],
     md_file = Artifact | None,
@@ -98,12 +95,6 @@ def _project_as_interfaces(lib: HaskellLibraryInfo) -> cmd_args:
         args.add(ifaces)
     return args
 
-def _get_package_deps(children: list[list[str]], lib: HaskellLibraryInfo | None) -> list[str]:
-    flatted = flatten(children)
-    if lib:
-        flatted.extend(lib.dependencies)
-    return dedupe_by_value(flatted)
-
 def _get_toolchain_packages(
         children: list[list[HaskellToolchainLibrary]],
         lib: HaskellLibraryInfo | None) -> list[HaskellToolchainLibrary]:
@@ -127,7 +118,6 @@ HaskellLibraryInfoTSet = transitive_set(
         "interfaces": _project_as_interfaces,
     },
     reductions = {
-        "packages": _get_package_deps,
         "toolchain_packages": _get_toolchain_packages,
     },
     json_projections = {
