@@ -47,7 +47,7 @@ haskell_library(
 )
 
 haskell_binary(
-    name = "test1",
+    name = "test1_bin",
     srcs = ["app/test1.hs"],
     strip_prefix = ["app"],
     visibility = ["PUBLIC"],
@@ -59,8 +59,8 @@ haskell_binary(
 )
 
 sh_test(
-    name = "test1_in_proj_ffi",
-    test = ":test1"
+    name = "test1",
+    test = ":test1_bin"
 )
 
 #
@@ -110,7 +110,7 @@ haskell_library(
 )
 
 haskell_binary(
-    name = "test2",
+    name = "test2_bin",
     srcs = ["app/test2.hs"],
     strip_prefix = ["app"],
     visibility = ["PUBLIC"],
@@ -122,6 +122,43 @@ haskell_binary(
 )
 
 sh_test(
-    name = "test2_in_proj_ffi",
-    test = ":test2"
+    name = "test2",
+    test = ":test2_bin",
+)
+
+#
+# TH module depends on in-project C code
+#
+
+haskell_library(
+    name = "libE",
+    srcs = [
+        "src/E.hs",
+        "src/TH.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        "//tests:template-haskell",
+        ":libA",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_binary(
+    name = "test3_bin",
+    srcs = ["app/test3.hs"],
+    strip_prefix = ["app"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libE",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+sh_test(
+    name = "test3",
+    test = ":test3_bin",
 )

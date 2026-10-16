@@ -4,6 +4,10 @@ load(
     "haskell_library",
 )
 
+#
+# regular module transitively depends on toolchain FFI
+#
+
 haskell_library(
     name = "libA",
     srcs = [
@@ -35,8 +39,8 @@ haskell_library(
 )
 
 haskell_binary(
-    name = "exe",
-    srcs = ["app/Main.hs"],
+    name = "test1_bin",
+    srcs = ["app/test1.hs"],
     strip_prefix = ["app"],
     visibility = ["PUBLIC"],
     deps = [
@@ -47,6 +51,44 @@ haskell_binary(
 )
 
 sh_test(
-    name = "test_toolchain_ffi",
-    test = ":exe"
+    name = "test1",
+    test = ":test1_bin"
+)
+
+#
+# TH module depends on toolchain FFI.
+#
+
+haskell_library(
+    name = "libC",
+    srcs = [
+        "src/C.hs",
+        "src/TH.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        "//tests:template-haskell",
+        ":libA",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+
+haskell_binary(
+    name = "test2_bin",
+    srcs = ["app/test2.hs"],
+    strip_prefix = ["app"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libC",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+sh_test(
+    name = "test2",
+    test = ":test2_bin"
 )
