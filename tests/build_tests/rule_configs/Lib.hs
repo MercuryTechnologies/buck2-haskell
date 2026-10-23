@@ -3,9 +3,10 @@
 module Lib(greeting, dependOnExample, Example) where
 
 import Test.Hspec (Example)
+import LibB (greetingB)
 
 greeting :: String
-greeting = "Hello from Lib"
+greeting = greetingB
 
 -- | We refer to 'Example' to test haddock.
 dependOnExample :: Example () => ()

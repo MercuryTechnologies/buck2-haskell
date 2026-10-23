@@ -1283,10 +1283,13 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         other_outputs = manifest_outputs,
     )]
 
+    compiled_link_style = LinkStyle("shared")
     haddock = haskell_haddock_lib(
         ctx,
         pkgname,
-        non_profiling_hlib[LinkStyle("shared")].compiled,
+        compiled_link_style,
+        False,
+        non_profiling_hlib[compiled_link_style].compiled,
         # Use the shared, non-profiling metadata (build plan) to match the
         # shared compiled info passed above.
         def_md_file,

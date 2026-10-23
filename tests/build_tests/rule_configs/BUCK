@@ -16,7 +16,7 @@ load(
 
 haskell_library(
     name = "lib",
-    srcs = ["Lib.hs"],
+    srcs = ["Lib.hs", "LibB.hs"],
     deps = [
         "//tests:base",
         "//tests:hspec",

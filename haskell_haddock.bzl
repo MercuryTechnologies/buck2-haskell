@@ -7,6 +7,7 @@
 
 load("@prelude//utils:graph_utils.bzl", "post_order_traversal")
 load("@prelude//:paths.bzl", "paths")
+load("@prelude//linking:link_info.bzl", "LinkStyle")
 load(":compile.bzl", "CompileResultInfo", "CompiledModuleTSet", "DynamicCompileResultInfo")
 load(":library_info.bzl", "HaskellLibraryInfoTSet")
 load(":link_info.bzl", "cxx_toolchain_link_style")
@@ -22,7 +23,10 @@ load(
     ":util.bzl",
     "attr_deps",
     "attr_deps_haskell_link_infos",
+    "get_artifact_suffix",
+    "make_haskell_names_from_label",
     "md_module_mapping",
+    "output_extensions",
     "src_to_module_name",
 )
 
@@ -41,7 +45,7 @@ _HaddockInfo = record(
 )
 
 def _haskell_interfaces_args(info: _HaddockInfo):
-    return cmd_args(info.interface, format="--one-shot-dep-hi={}")
+    return info.interface
 
 _HaddockInfoTSet = transitive_set(
     args_projections = {
@@ -61,14 +65,19 @@ def _haddock_dump_interface(
     module_deps: list[CompiledModuleTSet],
     graph: dict[str, list[str]],
     toolchain_packagedb_args: TransitiveSetArgsProjection,
+    unit_name: str,
+    hidir: cmd_args,
+    hisuf: str,
+    link_style: LinkStyle,
     outputs: dict[Artifact, OutputArtifact]) -> _HaddockInfoTSet:
+
+    cmd = cmd.copy()
 
     # Transitive module dependencies from other packages.
     cross_package_modules = actions.tset(
         CompiledModuleTSet,
         children = module_deps,
     )
-    cross_interfaces = cross_package_modules.project_as_args("interfaces")
 
     # Package databases of the transitive module dependencies from other
     # packages (locally built Haskell libraries).
@@ -91,26 +100,35 @@ def _haddock_dump_interface(
         html_output_arg = cmd_args(outputs[expected_html], parent = 1)
         make_copy = False
 
+    if link_style == LinkStyle("shared"):
+        cmd.add("--optghc=-dynamic")
+
     actions.run(
-        cmd.copy().add(
+        cmd.add(
             "--odir", html_output_arg,
             "--dump-interface", outputs[haddock_info.haddock],
             "--html",
             "--hoogle",
+            "--optghc=-hidir",
+            cmd_args(hidir, format="--optghc={}"),
+            "--optghc=-hisuf",
+            cmd_args(hisuf, format="--optghc={}"),
             cmd_args(
-                haddock_info.interface,
-                format="--one-shot-hi={}"),
-            cmd_args(
-                [haddock_info.project_as_args("interfaces") for haddock_info in this_package_modules],
+                module_name,
+                format="--incremental={}",
+                hidden = haddock_info.interface,
             ),
-            cmd_args(
-                cross_interfaces, format="--one-shot-dep-hi={}"
+            cmd_args(hidden =
+                [haddock_info.project_as_args("interfaces") for haddock_info in this_package_modules],
             ),
             cmd_args(
                 cross_package_dbs, format="--optghc=-package-db={}"
             ),
             cmd_args(
                 toolchain_packagedb_args, format="--optghc=-package-db={}"
+            ),
+            cmd_args(
+                unit_name, format="--optghc=-this-unit-id={}"
             ),
         ),
         category = "haskell_haddock",
@@ -135,8 +153,18 @@ def _dynamic_haddock_dump_interfaces_impl(
     md_file,
     dynamic_info_lib,
     toolchain_pkg_deps,
+    unit_name,
     outputs,
     arg):
+
+    # Same as in compile.bzl: the directory where GHC writes the interface files
+    module_prefix_dir = "mod-" + get_artifact_suffix(arg.link_style, arg.enable_profiling)
+    hidir = cmd_args(
+        [cmd_args(arg.md_file, ignore_artifacts = True, parent = 1), module_prefix_dir],
+        delimiter = "/",
+    )
+
+    _, hisuf = output_extensions(arg.link_style, arg.enable_profiling)
 
     md = md_file.read_json()
     module_map = md_module_mapping(md)
@@ -187,6 +215,10 @@ def _dynamic_haddock_dump_interfaces_impl(
             module_deps = module_deps,
                 graph = graph,
             toolchain_packagedb_args = toolchain_packagedb_args,
+            unit_name = unit_name,
+            hidir = hidir,
+            hisuf = hisuf,
+            link_style = arg.link_style,
             outputs = outputs,
         )
 
@@ -199,14 +231,20 @@ _dynamic_haddock_dump_interfaces = dynamic_actions(
         "arg": dynattrs.value(typing.Any),
         "dynamic_info_lib": dynattrs.dict(str, dynattrs.dynamic_value()),
         "toolchain_pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
+        "unit_name": dynattrs.value(str),
         "outputs": dynattrs.dict(Artifact, dynattrs.output()),
     },
 )
 
-def haskell_haddock_lib(ctx: AnalysisContext, pkgname: str, compiled: CompileResultInfo, md_file: Artifact) -> HaskellHaddockInfo:
-    haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
+def haskell_haddock_lib(
+    ctx: AnalysisContext,
+    pkgname: str,
+    link_style: LinkStyle,
+    enable_profiling: bool,
+    compiled: CompileResultInfo,
+    md_file: Artifact) -> HaskellHaddockInfo:
 
-    link_style = cxx_toolchain_link_style(ctx)
+    haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
 
     cmd = cmd_args(haskell_toolchain.haddock)
 
@@ -221,6 +259,8 @@ def haskell_haddock_lib(ctx: AnalysisContext, pkgname: str, compiled: CompileRes
         "--package-name",
         pkgname,
     )
+
+    unit_name, _ = make_haskell_names_from_label(ctx.label, False)
 
     cmd.add(ctx.attrs.haddock_flags)
 
@@ -267,11 +307,13 @@ def haskell_haddock_lib(ctx: AnalysisContext, pkgname: str, compiled: CompileRes
             ]
         },
         toolchain_pkg_deps = pkg_deps,
+        unit_name = unit_name,
         outputs = {output: output.as_output() for info in haddock_infos.values() for output in [info.haddock, info.html]},
         arg = struct(
             dyn_cmd = cmd.copy(),
             haddock_infos = haddock_infos,
             link_style = link_style,
+            enable_profiling = enable_profiling,
             md_file = md_file,
             toolchain_libs = toolchain_libs,
             toolchain_lib_objs =
