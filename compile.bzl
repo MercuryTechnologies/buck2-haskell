@@ -78,6 +78,10 @@ CompiledModuleInfo = provider(fields = {
     "abi": provider_field(Artifact | None),
     "interfaces": provider_field(list[Artifact]),
     "hie_files": provider_field(list[Artifact]),
+    # object files to link for this module. For most modules this contains one
+    # element, but for hs-boot modules it contains none, because the
+    # corresponding objects (.o-boot) are empty and shouldn't be linked.
+    "objects": provider_field(list[Artifact]),
     # TODO[AH] track this module's package-name/id & package-db instead.
     "db_deps": provider_field(list[Artifact]),
     "package": provider_field(str),
@@ -107,6 +111,9 @@ def _compiled_module_project_as_interfaces(mod: CompiledModuleInfo) -> cmd_args:
 def _compiled_module_project_as_hie_files(mod: CompiledModuleInfo) -> cmd_args:
     return cmd_args(mod.hie_files)
 
+def _compiled_module_project_as_objects(mod: CompiledModuleInfo) -> cmd_args:
+    return cmd_args(mod.objects)
+
 def _compiled_module_reduce_as_packagedb_deps(children: list[dict[Artifact, None]], mod: CompiledModuleInfo | None) -> dict[Artifact, None]:
     # TODO[AH] is there a better way to avoid duplicate package-dbs?
     #   Using a projection instead would produce duplicates.
@@ -120,6 +127,7 @@ CompiledModuleTSet = transitive_set(
         "abi": _compiled_module_project_as_abi,
         "interfaces": _compiled_module_project_as_interfaces,
         "hie_files": _compiled_module_project_as_hie_files,
+        "objects": _compiled_module_project_as_objects,
     },
     reductions = {
         "packagedb_deps": _compiled_module_reduce_as_packagedb_deps,
@@ -1559,6 +1567,8 @@ def _compile_module(
             abi = module.hash,
             interfaces = module.interfaces + module.extra_interfaces,
             hie_files = module.hie_files,
+            # See the comment on this field in the definition of CompiledModuleInfo
+            objects = [o for o in module.objects if not o.extension.endswith("-boot")],
             db_deps = categorized_package_deps.exposed_package_dbs,
         ),
         children = [cross_package_modules] + this_package_modules,

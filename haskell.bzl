@@ -55,6 +55,7 @@ load(
 load(
     ":compile.bzl",
     "CompileResultInfo",
+    "DynamicCompileResultInfo",
     "compile",
     "get_extra_lib_info",
     "target_metadata",
@@ -118,6 +119,7 @@ load(
     "attr_deps_haskell_toolchain_libraries",
     "attr_deps_merged_link_infos",
     "compute_source_module_paths",
+    "decompose_main",
     "get_artifact_suffix",
     "get_source_prefixes",
     "make_haskell_names_from_label",
@@ -1460,6 +1462,9 @@ _DynamicLinkBinaryOptions = record(
     link_args = cmd_args,
     link_style = LinkStyle,
     link_haskell_objects_at_once = bool,
+    # Name of the binary's main module, used to compute the closure of objects
+    # to link when `link_haskell_objects_at_once` is set.
+    main_module = str,
     link_weight = int | None,
     linker_flags = list[typing.Any],  # Arguments.
     link_group_libs = list[HaskellLinkGroupInfo],
@@ -1473,6 +1478,7 @@ def _dynamic_link_binary_impl(
         actions: AnalysisActions,
         pkg_deps: ResolvedDynamicValue,
         extra_lib_dyns: list[ResolvedDynamicValue],
+        module_tsets: ResolvedDynamicValue | None,
         output: OutputArtifact,
         output_symlink_dir: OutputArtifact | None,
         arg: _DynamicLinkBinaryOptions) -> list[Provider]:
@@ -1533,17 +1539,26 @@ def _dynamic_link_binary_impl(
         package_args.add(lg.pkgname)
         link_cmd_hidden.append(lg.lib)
 
-    # NOTE: If link_haskell_objects_at_once = True, all the transitive dependency objects
-    # (except for those from haskell_link_group) are directly linked at executable binary
-    # linking. Therefore, we set package db dependencies to use empty_db (module-object-only
-    # packages)
+    # NOTE: If link_haskell_objects_at_once = True, the objects of all modules in the
+    # transitive closure of the main module (except for those from haskell_link_group),
+    # both from this binary and from its library dependencies, are directly linked at
+    # executable binary linking. Modules that the main module does not (transitively)
+    # import are not linked.
     if arg.link_haskell_objects_at_once:  # when link_haskell_objects_at_once = True
-        for hlib in arg.haskell_library_tset.traverse():
-            # Add all the transitive objects except for those in link group.
-            # for now, only non-profiled binary
-            is_profiled = False
-            if hlib.name not in all_link_group_ids:
-                object_args.add(hlib.objects[is_profiled])
+        modules = module_tsets.providers[DynamicCompileResultInfo].modules
+        main_tset = modules.get(arg.main_module)
+        if main_tset == None:
+            fail("{}: main module `{}` not found among compiled modules: {}".format(
+                arg.label,
+                arg.main_module,
+                list(modules.keys()),
+            ))
+        if all_link_group_ids:
+            for mod in main_tset.traverse():
+                if mod.package not in all_link_group_ids:
+                    object_args.add(mod.objects)
+        else:
+            object_args.add(main_tset.project_as_args("objects"))
 
     else:  # when link_haskell_objects_at_once = False
         for hlib in arg.haskell_library_tset.traverse():
@@ -1633,6 +1648,7 @@ _dynamic_link_binary = dynamic_actions(
         "arg": dynattrs.value(typing.Any),
         "pkg_deps": dynattrs.option(dynattrs.dynamic_value()),
         "extra_lib_dyns": dynattrs.list(dynattrs.dynamic_value()),
+        "module_tsets": dynattrs.option(dynattrs.dynamic_value()),
         "output": dynattrs.output(),
         "output_symlink_dir": dynattrs.option(dynattrs.output()),
     },
@@ -1750,7 +1766,10 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         if not key in objects:
             objects[key] = obj
 
-    link_args.add(objects.values())
+    # With link_haskell_objects_at_once, this binary's objects are linked as part of
+    # the main module's closure instead; see `_dynamic_link_binary_impl`.
+    if not ctx.attrs.link_haskell_objects_at_once:
+        link_args.add(objects.values())
 
     indexing_tsets = {}
     if compiled.producing_indices:
@@ -1820,9 +1839,15 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
                 # TODO(iank): Implement the support for static archives.
                 fail("Unimplemented linkable: {}".format(linkable))
 
+    if ctx.attrs.main:
+        (main_module, _main_function) = decompose_main(ctx.attrs.main)
+    else:
+        main_module = "Main"
+
     ctx.actions.dynamic_output_new(_dynamic_link_binary(
         pkg_deps = haskell_toolchain.packages.dynamic if haskell_toolchain.packages else None,
         extra_lib_dyns = extra_lib_info.extra_lib_dyns,
+        module_tsets = compiled.module_tsets if ctx.attrs.link_haskell_objects_at_once else None,
         output = output.as_output(),
         output_symlink_dir = output_symlink_dir.as_output() if output_symlink_dir else None,
         arg = _DynamicLinkBinaryOptions(
@@ -1837,6 +1862,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
             link_args = link_args,
             link_style = link_style,
             link_haskell_objects_at_once = ctx.attrs.link_haskell_objects_at_once,
+            main_module = main_module,
             link_weight = ctx.attrs.link_weight,
             linker_flags = ctx.attrs.linker_flags,
             link_group_libs = link_group_libs,

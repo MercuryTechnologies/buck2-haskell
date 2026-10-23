@@ -1,0 +1,31 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_library",
+)
+
+haskell_library(
+    name = "lib",
+    srcs = [
+        "A.hs",
+        "Unused.hs",
+    ],
+    deps = ["//tests:base"],
+    allow_worker = False,
+)
+
+haskell_binary(
+    name = "app",
+    srcs = ["app.hs"],
+    deps = [
+        ":lib",
+        "//tests:base",
+    ],
+    link_haskell_objects_at_once = True,
+    allow_worker = False,
+)
+
+sh_test(
+    name = "test_app",
+    test = ":app",
+)
