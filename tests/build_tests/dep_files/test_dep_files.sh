@@ -14,7 +14,7 @@ trap 'cp "$backup/Dep.hs" "$pkg/Dep.hs"; cp "$backup/Base.hs" "$pkg/Base.hs"; cp
 build() {
     # When using watchman (as buck2-test-suites currently uses), immediately building after file
     # edits can result in no-op builds occasionally.
-    sleep 1
+    sleep 2
     buck2 --isolation-dir dep_files build --no-remote-cache -c ghc-worker.enable=true "$target" > /dev/null
 }
 
