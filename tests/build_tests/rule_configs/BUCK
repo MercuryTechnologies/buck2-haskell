@@ -193,4 +193,10 @@ sh_test(
         "//tests/plugins:GhciPluginTest.hs",
         "//tests/plugins:GhciOrderTest.hs",
     ],
+    env = {
+        "GHC_VERSION_MODIFIER": select({
+            "root//constraints/ghc:ghc_version[ghc910]": "ghc910",
+            "root//constraints/ghc:ghc_version[ghc914]": "ghc914",
+        }),
+    },
 )

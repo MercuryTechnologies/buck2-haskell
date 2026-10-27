@@ -52,4 +52,10 @@ sh_test(
     name = "test_ghci",
     test = "test_ghci.sh",
     labels = ["buck2_run_from_project_root"],
+    env = {
+        "GHC_VERSION_MODIFIER": select({
+            "root//constraints/ghc:ghc_version[ghc910]": "ghc910",
+            "root//constraints/ghc:ghc_version[ghc914]": "ghc914",
+        }),
+    },
 )
