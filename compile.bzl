@@ -1701,7 +1701,9 @@ def compile_args_for_non_incr(
 
     args.add("-fbyte-code-and-object-code")
     args.add("-fprefer-byte-code")
-    args.add("-fpackage-db-byte-code")
+    # -fpackage-db-byte-code only needed for mercury-ghc 9.10
+    if haskell_toolchain.compiler_major_version.startswith("9.10."):
+        args.add("-fpackage-db-byte-code")
     args.add("-j")
 
     args.add("-no-link", "-i")
