@@ -1818,6 +1818,7 @@ def _make_module_tsets_non_incr(
             abi = module.hash,
             interfaces = module.interfaces + module.extra_interfaces,
             hie_files = module.hie_files,
+            objects = [o for o in module.objects if not o.extension.endswith("-boot")],
             db_deps = categorized_package_deps.exposed_package_dbs,
         ),
         children = [cross_package_modules],
@@ -1884,7 +1885,7 @@ def _compile_non_incr(
             name = module_name,
             pkgname = arg.pkgname,
         )
-        for deps in module_tsets[module_name].children:
+        for deps in module_tsets.modules[module_name].children:
             args.add(cmd_args(hidden = deps.project_as_args("interfaces")))
 
     category = "haskell_compile_" + artifact_suffix.replace("-", "_")
