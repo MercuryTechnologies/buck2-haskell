@@ -1,4 +1,4 @@
-load("@buck2-haskell//tests:buck2_haskell_target.bzl", "buck2_haskell_library", "buck2_haskell_test")
+load("@buck2-haskell//tests/no-worker:buck2_haskell_target.bzl", "buck2_haskell_library", "buck2_haskell_test")
 
 export_file(
     name = "exported",

@@ -1,7 +1,7 @@
 module Resources.LibExportingResource (resourceName, subdirResource) where
 
 resourceName :: String
-resourceName = "tests/Resources/test_resource.txt"
+resourceName = "tests/no-worker/Resources/test_resource.txt"
 
 subdirResource :: String
-subdirResource = "tests/Resources/subdir.txt"
+subdirResource = "tests/no-worker/Resources/subdir.txt"

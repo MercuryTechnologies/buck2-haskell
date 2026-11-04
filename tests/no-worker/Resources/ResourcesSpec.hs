@@ -47,5 +47,5 @@ main = hspec do
       content `shouldBe` "resource!!\n"
 
     it "resource2.txt is readable" \db -> do
-      content <- readResource "tests/Resources/resource2.txt" db
+      content <- readResource "tests/no-worker/Resources/resource2.txt" db
       content `shouldBe` "resource!\n"

@@ -3,7 +3,7 @@ Definitions for test targets with the right default compiler flags.
 """
 
 load("@buck2-haskell//:defs.bzl", "haskell_library", "haskell_test", "haskell_toolchain_library")
-load("@buck2-haskell//tests:defs.bzl", "default_ghc_flags")
+load(":defs.bzl", "default_ghc_flags")
 
 def _generate_module_prefix():
     path_parts = package_name().split("/")
