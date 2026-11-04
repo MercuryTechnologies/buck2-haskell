@@ -175,7 +175,7 @@ genrule(
     ],
     out = "test_ghci.sh",
     cmd = """
-        sed -e 's|%GhciPluginTest.hs%|$(location //tests/plugins:GhciPluginTest.hs)|g' -e 's|%GhciOrderTest.hs%|$(location //tests/plugins:GhciOrderTest.hs)|g' test_ghci.sh.tpl >> $OUT
+        sed -e 's|%GhciPluginTest.hs%|$(location //tests/no-worker/plugins:GhciPluginTest.hs)|g' -e 's|%GhciOrderTest.hs%|$(location //tests/no-worker/plugins:GhciOrderTest.hs)|g' test_ghci.sh.tpl >> $OUT
         chmod +x $OUT
 """,
     executable = True,
@@ -190,8 +190,8 @@ sh_test(
     # They must be listed as deps so they are materialized at test time
     # (deferred materialization won't materialize them otherwise).
     deps = [
-        "//tests/plugins:GhciPluginTest.hs",
-        "//tests/plugins:GhciOrderTest.hs",
+        "//tests/no-worker/plugins:GhciPluginTest.hs",
+        "//tests/no-worker/plugins:GhciOrderTest.hs",
     ],
     env = {
         "GHC_VERSION_MODIFIER": select({
