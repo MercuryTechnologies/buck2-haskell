@@ -16,6 +16,7 @@ load("@toolchains//:haskell_all.bzl", "haskell_toolchain_all")
     "directory",
     "filepath",
     "ghc",
+    "ghc-typelits-natnormalise",
     "hspec",
     "hspec-expectations",
     "inspection-testing",

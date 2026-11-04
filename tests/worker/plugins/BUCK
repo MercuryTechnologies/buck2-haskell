@@ -399,6 +399,72 @@ haskell_haddock(
 )
 
 # =============================================================================
+# haskell_test with ghc-typelits-natnormaliser (toolchain library plugin)
+# =============================================================================
+
+# This plugin rehearses a slightly different code path when handling toolchain
+# libraries. Unlike inspection-testing, it doesn't require importing modules
+# from the plugin library, nontheless the package db of the plugin is still
+# necessary.
+
+ghc_plugin(
+    name = "natnormalise_plugin",
+    module = "GHC.TypeLits.Normalise",
+    deps = ["//tests:ghc-typelits-natnormalise"],
+    visibility = ["//tests/..."],
+)
+
+haskell_test(
+    name = "ht_natnormalise_static",
+    srcs = ["NatNormaliseMain.hs"],
+    link_style = "static",
+    plugins = [":natnormalise_plugin"],
+    deps = [
+        "//tests:base",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_test(
+    name = "ht_natnormalise_shared",
+    srcs = ["NatNormaliseMain.hs"],
+    link_style = "shared",
+    plugins = [":natnormalise_plugin"],
+    deps = [
+        "//tests:base",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+### Per-module variants
+
+haskell_test(
+    name = "ht_per_module_natnormalise_static",
+    srcs = ["NatNormaliseMain.hs"],
+    link_style = "static",
+    per_module_plugins = {
+        "Main": [":natnormalise_plugin"],
+    },
+    deps = [
+        "//tests:base",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_test(
+    name = "ht_per_module_natnormalise_shared",
+    srcs = ["NatNormaliseMain.hs"],
+    link_style = "shared",
+    per_module_plugins = {
+        "Main": [":natnormalise_plugin"],
+    },
+    deps = [
+        "//tests:base",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
 # haskell_test with inspection-testing (toolchain library plugin)
 # =============================================================================
 
