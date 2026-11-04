@@ -1,0 +1,464 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "ghc_plugin",
+    "haskell_binary",
+    "haskell_ghci",
+    "haskell_haddock",
+    "haskell_library",
+    "haskell_test",
+)
+
+# exported files
+export_file(
+    name = "GhciOrderTest.hs",
+    src = "ghci_src/GhciOrderTest.hs",
+    out = "ghci_src/GhciOrderTest.hs",
+    visibility = ["//tests/..."],
+)
+
+export_file(
+    name = "GhciPluginTest.hs",
+    src = "ghci_src/GhciPluginTest.hs",
+    out = "ghci_src/GhciPluginTest.hs",
+    visibility = ["//tests/..."],
+)
+
+
+# =============================================================================
+# Plugin library and ghc_plugin rules
+# =============================================================================
+
+# Real plugin: invokes a tool via readProcess at compile time (compile fails
+# if the tool is not on PATH) and replaces every string literal with a
+# replacement string passed via plugin_opts (runtime test detects if the
+# replacement didn't happen).
+haskell_library(
+    name = "plugin_lib",
+    srcs = ["Plugin.hs"],
+    deps = [
+        "//tests:base",
+        ":plugin_lib_backend",
+    ],
+    visibility = ["//tests/..."],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_library(
+    name = "plugin_lib_backend",
+    srcs = ["PluginLibBackend.hs"],
+    deps = [
+        "//tests:base",
+        "//tests:bytestring",
+        "//tests:ghc",
+        "//tests:process",
+    ],
+    visibility = ["//tests/..."],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# A trivial tool binary that the plugin invokes during compilation.
+# If this tool is not available on PATH, the plugin's readProcess call
+# throws an IOException and GHC reports a compilation failure.
+haskell_binary(
+    name = "plugin_tool",
+    srcs = ["PluginTool.hs"],
+    link_style = "static",
+    deps = ["//tests:base"],
+    visibility = ["//tests/..."],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# ghc_plugin with tools and plugin_opts.
+# - tools: the plugin_tool binary, invoked at compile time.
+# - plugin_opts: ["plugin_tool", "plugin_ok"]
+#   * "plugin_tool" = the tool name the plugin will invoke via readProcess
+#   * "plugin_ok"   = the replacement string for all string literals
+ghc_plugin(
+    name = "real_plugin",
+    module = "Plugin",
+    deps = [":plugin_lib"],
+    tools = [":plugin_tool"],
+    plugin_opts = ["plugin_tool", "plugin_ok"],
+    visibility = ["//tests/..."],
+)
+
+# Order plugin: verifies plugin_opts arrive as ["alpha", "beta", "gamma"].
+# Compilation fails if options are missing or reordered.
+haskell_library(
+    name = "order_plugin_lib",
+    srcs = ["OrderPlugin.hs"],
+    deps = [
+        "//tests:base",
+        "//tests:ghc",
+    ],
+    visibility = ["//tests/..."],
+    _worker = "toolchains//:persistent_worker",
+)
+
+ghc_plugin(
+    name = "order_plugin",
+    module = "OrderPlugin",
+    deps = [":order_plugin_lib"],
+    plugin_opts = ["alpha"],
+    visibility = ["//tests/..."],
+)
+
+# =============================================================================
+# haskell_library targets with real plugin (global)
+# =============================================================================
+
+# Library compiled with the real plugin: the plugin replaces the string literal
+# in PluginLib.greeting at compile time.
+haskell_library(
+    name = "lib_real_plugin",
+    srcs = ["PluginLib.hs"],
+    plugins = [":real_plugin"],
+    deps = ["//tests:base"],
+    visibility = ["//tests/..."],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# # Consumer test: imports PluginLib.greeting and verifies it was replaced.
+# haskell_test(
+#     name = "ht_lib_real_plugin",
+#     srcs = ["TestPluginLib.hs"],
+#     deps = [
+#         "//tests:base",
+#         ":lib_real_plugin",
+#     ],
+#     allow_worker = False,
+# )
+
+# =============================================================================
+# haskell_library targets with real plugin (per_module_plugins / per-module)
+# =============================================================================
+
+haskell_library(
+    name = "lib_per_module_real_plugin",
+    srcs = ["PluginLib.hs"],
+    per_module_plugins = {
+        "PluginLib": [":real_plugin"],
+    },
+    deps = ["//tests:base"],
+    visibility = ["//tests/..."],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_test(
+    name = "ht_lib_per_module_real_plugin",
+    srcs = ["TestPluginLib.hs"],
+    deps = [
+        "//tests:base",
+        ":lib_per_module_real_plugin",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# haskell_library targets with order plugin
+# =============================================================================
+
+haskell_library(
+    name = "lib_order_plugin",
+    srcs = ["Lib.hs"],
+    plugins = [":order_plugin"],
+    deps = ["//tests:base"],
+    compiler_flags = [
+        "-fplugin-opt=OrderPlugin:beta",
+        "-fplugin-opt=OrderPlugin:gamma",
+    ],
+    visibility = ["//tests/..."],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_test(
+    name = "ht_lib_order_plugin",
+    srcs = ["Main.hs"],
+    deps = [
+        "//tests:base",
+        ":lib_order_plugin",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# haskell_binary targets with real plugin — static + shared
+# =============================================================================
+
+haskell_binary(
+    name = "bin_real_plugin_static",
+    srcs = ["PluginMain.hs"],
+    link_style = "static",
+    plugins = [":real_plugin"],
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_binary(
+    name = "bin_real_plugin_shared",
+    srcs = ["PluginMain.hs"],
+    link_style = "shared",
+    plugins = [":real_plugin"],
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# haskell_binary targets with real plugin via per_module_plugins — static + shared
+# =============================================================================
+
+haskell_binary(
+    name = "bin_per_module_real_plugin_static",
+    srcs = ["PluginMain.hs"],
+    link_style = "static",
+    per_module_plugins = {
+        "Main": [":real_plugin"],
+    },
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_binary(
+    name = "bin_per_module_real_plugin_shared",
+    srcs = ["PluginMain.hs"],
+    link_style = "shared",
+    per_module_plugins = {
+        "Main": [":real_plugin"],
+    },
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# haskell_binary with order plugin
+# =============================================================================
+
+haskell_binary(
+    name = "bin_order_plugin",
+    srcs = ["OrderMain.hs"],
+    link_style = "static",
+    plugins = [":order_plugin"],
+    deps = ["//tests:base"],
+    compiler_flags = [
+        "-fplugin-opt=OrderPlugin:beta",
+        "-fplugin-opt=OrderPlugin:gamma",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# sh_tests wrapping binaries — verify correct runtime behavior
+# =============================================================================
+
+sh_test(
+    name = "test_bin_real_plugin_static",
+    test = ":bin_real_plugin_static",
+)
+
+sh_test(
+    name = "test_bin_real_plugin_shared",
+    test = ":bin_real_plugin_shared",
+)
+
+sh_test(
+    name = "test_bin_per_module_real_plugin_static",
+    test = ":bin_per_module_real_plugin_static",
+)
+
+sh_test(
+    name = "test_bin_per_module_real_plugin_shared",
+    test = ":bin_per_module_real_plugin_shared",
+)
+
+sh_test(
+    name = "test_bin_order_plugin",
+    test = ":bin_order_plugin",
+)
+
+# =============================================================================
+# haskell_test targets with real plugin — global
+# =============================================================================
+
+haskell_test(
+    name = "ht_real_plugin_static",
+    srcs = ["PluginMain.hs"],
+    link_style = "static",
+    plugins = [":real_plugin"],
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+haskell_test(
+    name = "ht_real_plugin_shared",
+    srcs = ["PluginMain.hs"],
+    link_style = "shared",
+    plugins = [":real_plugin"],
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# haskell_test targets with real plugin — per_module_plugins
+# =============================================================================
+
+haskell_test(
+    name = "ht_per_module_real_plugin_static",
+    srcs = ["PluginMain.hs"],
+    link_style = "static",
+    per_module_plugins = {
+        "Main": [":real_plugin"],
+    },
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# Plugin runs where expected.
+haskell_test(
+    name = "ht_per_module_real_plugin_shared",
+    src_main = "PluginMain.hs",
+    srcs = [
+        "PluginMain.hs",
+        "PluginMainDummy.hs",
+    ],
+    link_style = "shared",
+    per_module_plugins = {
+        "Main": [":real_plugin"],
+    },
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# Plugin does not run where not expected.
+haskell_test(
+    name = "ht_per_module_real_plugin_not_run_shared",
+    src_main = "PluginMain2Dummy.hs",
+    srcs = [
+        "PluginMain2.hs",
+        "PluginMain2Dummy.hs",
+    ],
+    link_style = "shared",
+    per_module_plugins = {
+        "Main": [":real_plugin"],
+    },
+    deps = ["//tests:base"],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# haskell_test targets with order plugin
+# =============================================================================
+
+haskell_test(
+    name = "ht_order_plugin",
+    srcs = ["OrderMain.hs"],
+    link_style = "static",
+    plugins = [":order_plugin"],
+    deps = ["//tests:base"],
+    compiler_flags = [
+        "-fplugin-opt=OrderPlugin:beta",
+        "-fplugin-opt=OrderPlugin:gamma",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# haskell_ghci targets with plugins
+# =============================================================================
+
+# GHCi with the real_plugin: when GHCi compiles GhciPluginTest.hs on load,
+# the plugin replaces the "original" string literal with "plugin_ok".
+haskell_ghci(
+    name = "ghci_real_plugin",
+    plugins = [":real_plugin"],
+    deps = ["//tests:base"],
+    ghci_bin_dep = "//tests:ghci_bin",
+    _worker = "toolchains//:persistent_worker",
+)
+
+# GHCi with order_plugin: compilation only succeeds when plugin_opts arrive
+# in the expected order.  Additional opts are passed via compiler_flags.
+haskell_ghci(
+    name = "ghci_order_plugin",
+    plugins = [":order_plugin"],
+    deps = ["//tests:base"],
+    ghci_bin_dep = "//tests:ghci_bin",
+    compiler_flags = [
+        "-fplugin-opt=OrderPlugin:beta",
+        "-fplugin-opt=OrderPlugin:gamma",
+    ],
+    _worker = "toolchains//:persistent_worker",
+)
+
+# =============================================================================
+# haskell_haddock target with real plugin
+# =============================================================================
+
+haskell_haddock(
+    name = "haddock_plugin",
+    deps = [":lib_real_plugin"],
+)
+
+# =============================================================================
+# haskell_test with inspection-testing (toolchain library plugin)
+# =============================================================================
+
+ghc_plugin(
+    name = "inspection_plugin",
+    module = "Test.Inspection.Plugin",
+    deps = ["//tests:inspection-testing"],
+    visibility = ["//tests/..."],
+)
+
+# haskell_test(
+#     name = "ht_inspection_static",
+#     srcs = ["InspectionMain.hs"],
+#     link_style = "static",
+#     plugins = [":inspection_plugin"],
+#     deps = [
+#         "//tests:base",
+#         "//tests:inspection-testing",
+#     ],
+#     allow_worker = False,
+# )
+
+# haskell_test(
+#     name = "ht_inspection_shared",
+#     srcs = ["InspectionMain.hs"],
+#     link_style = "shared",
+#     plugins = [":inspection_plugin"],
+#     deps = [
+#         "//tests:base",
+#         "//tests:inspection-testing",
+#     ],
+#     allow_worker = False,
+# )
+
+# # --- per_module_plugins variants (per-module) ---
+
+# haskell_test(
+#     name = "ht_per_module_inspection_static",
+#     srcs = ["InspectionMain.hs"],
+#     link_style = "static",
+#     per_module_plugins = {
+#         "Main": [":inspection_plugin"],
+#     },
+#     deps = [
+#         "//tests:base",
+#         "//tests:inspection-testing",
+#     ],
+#     allow_worker = False,
+# )
+
+# haskell_test(
+#     name = "ht_per_module_inspection_shared",
+#     srcs = ["InspectionMain.hs"],
+#     link_style = "shared",
+#     per_module_plugins = {
+#         "Main": [":inspection_plugin"],
+#     },
+#     deps = [
+#         "//tests:base",
+#         "//tests:inspection-testing",
+#     ],
+#     allow_worker = False,
+# )
