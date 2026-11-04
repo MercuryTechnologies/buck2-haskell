@@ -18,7 +18,7 @@ haskell_library(
     name = "lib",
     srcs = [
         "src/Root.hs",
-        "//tests/build_tests/export_file_src/src/Exported:leaf",
+        "//tests/no-worker/build_tests/export_file_src/src/Exported:leaf",
     ],
     strip_prefix = ["src"],
     deps = ["//tests:base"],

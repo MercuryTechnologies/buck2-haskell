@@ -5,5 +5,5 @@ export_file(
     name = "leaf",
     src = "Leaf.hs",
     out = "Exported/Leaf.hs",
-    visibility = ["//tests/build_tests/export_file_src:"],
+    visibility = ["//tests/no-worker/build_tests/export_file_src:"],
 )

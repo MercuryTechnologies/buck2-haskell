@@ -3,7 +3,7 @@
 # GHCi's -i import search finds `Stripped.Lib` and `Stripped.Inner` by name.
 set -euo pipefail
 
-target="buck2-haskell//tests/build_tests/strip_prefix_glob:ghci"
+target="buck2-haskell//tests/no-worker/build_tests/strip_prefix_glob:ghci"
 if ! buck2 run --modifier "${GHC_VERSION_MODIFIER:?GHC_VERSION_MODIFIER not set}" --no-remote-cache --isolation-dir ghci_tests "$target" -- \
        -e ':set -v0' \
        -e 'putStrLn Stripped.Lib.greeting' \
