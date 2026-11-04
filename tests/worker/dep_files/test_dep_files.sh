@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pkg=buck2-haskell/tests/build_tests/dep_files
-target="buck2-haskell//tests/build_tests/dep_files:lib"
+pkg=buck2-haskell/tests/worker/dep_files
+target="buck2-haskell//tests/worker/dep_files:lib"
 
 backup=$(mktemp -d -p "${BUCK_SCRATCH_PATH:-/tmp}")
 cp "$pkg/Dep.hs" "$backup/Dep.hs"
