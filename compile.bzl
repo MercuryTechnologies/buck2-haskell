@@ -597,6 +597,12 @@ def _dynamic_target_metadata_impl(
             identifier = arg.suffix if arg.suffix else None,
             exe = WorkerRunInfo(worker = arg.worker),
             allow_cache_upload = arg.allow_cache_upload,
+            # NOTE [worker and remote execution]: Hybrid execution might race
+            # the worker locally and remotely. This is pointless when both
+            # scenarios use the same worker process, and problematic when the
+            # executor aims to terminate the losing side, which would affect all
+            # of the compilation requests in progress.
+            local_only = True,
         )
     else:
         md_args = cmd_args()
@@ -1606,7 +1612,8 @@ def _compile_module(
         compile_cmd_args.add(compile_args_for_file)
 
     worker_args = {}
-    if worker != None and is_worker_execute:
+    uses_worker = worker != None and is_worker_execute
+    if uses_worker:
         worker_args["exe"] = WorkerRunInfo(worker = worker)
 
     actions.run(
@@ -1623,6 +1630,8 @@ def _compile_module(
         dep_files = dep_files,
         allow_cache_upload = allow_cache_upload,
         allow_dep_file_cache_upload = allow_cache_upload and haskell_toolchain.use_remote_dep_file_cache,
+        # See NOTE [worker and remote execution].
+        local_only = uses_worker,
         **worker_args
     )
 
