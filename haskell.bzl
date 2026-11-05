@@ -975,7 +975,8 @@ def _build_haskell_lib(
         extra = []
 
         solibs[libfile] = LinkedObject(output = lib, unstripped_output = lib)
-        libs = [lib]
+        # Propagate this package's own extra library artifacts to consumers
+        libs = [lib] + extra_libs
         link_infos = LinkInfos(
             default = LinkInfo(linkables = [SharedLibLinkable(lib = lib)]),
         )
@@ -993,7 +994,8 @@ def _build_haskell_lib(
                      extra_libs
             archive = make_archive(ctx, lib_short_path, objs, hidden = hidden)
             lib = archive.artifact
-            libs = [lib] + archive.external_objects
+            # Propagate this package's own extra library artifacts to consumers
+            libs = [lib] + archive.external_objects + extra_libs
             linkables = [ArchiveLinkable(
                 archive = archive,
                 linker_type = linker_info.type,
