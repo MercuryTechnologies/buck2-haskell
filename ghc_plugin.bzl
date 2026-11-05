@@ -146,6 +146,7 @@ def _add_plugin_hidden_inputs(args, info, link_style):
             # GHC needs transitive interface files when loading the plugin
             # module (e.g. if the plugin re-exports from a dependency).
             args.add(tset.project_as_args("interfaces"))
+            args.add(cmd_args(hidden = tset.project_as_args("package_db")))
             # GHC loads plugins dynamically regardless of the consumer's link
             # style. Ensure shared libs are materialized for all transitive
             # deps.
@@ -153,12 +154,15 @@ def _add_plugin_hidden_inputs(args, info, link_style):
                 shared_tset = link_info.info.get(LinkStyle("shared"))
                 if shared_tset:
                     args.add(shared_tset.project_as_args("libs"))
+                    args.add(cmd_args(hidden = shared_tset.project_as_args("package_db")))
         else:
             args.add(lib_info.libs)
+            args.add(cmd_args(hidden = [lib_info.db]))
             if link_style != LinkStyle("shared"):
                 shared_lib_info = lib_provider.lib.get(LinkStyle("shared"))
                 if shared_lib_info:
                     args.add(shared_lib_info.libs)
+                    args.add(cmd_args(hidden = [shared_lib_info.db]))
 
 def _add_plugin_flags(args, mod_args, info, link_style):
     """Add flags for the given plugin info"""
