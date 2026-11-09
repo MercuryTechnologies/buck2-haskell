@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Tests haskell_ghci targets by running them via buck2 and checking that
+# Lib.greeting is accessible, and that GHC plugins work in GHCi.
+set -euo pipefail
+
+SCRIPTDIR=$(dirname "$0")
+
+# --- Non-plugin GHCi tests ---
+for target in \
+    buck2-haskell//tests/no-worker/build_tests/rule_configs:ghci_lib
+do
+    if ! buck2 run --modifier "${GHC_VERSION_MODIFIER:?GHC_VERSION_MODIFIER not set}" --isolation-dir ghci_tests "$target" -- \
+           -e ':set -v0' -e 'putStrLn Lib.greeting' | grep -q "Hello from Lib"; then
+        echo "FAIL $target"
+        exit 1
+    fi
+    echo "PASS $target"
+done
+
+# --- GHCi plugin tests ---
+# real_plugin: the plugin replaces all string literals with "plugin_ok".
+# Loading GhciPluginTest.hs in GHCi should produce the replaced value.
+target="buck2-haskell//tests/no-worker/plugins:ghci_real_plugin"
+if ! buck2 run --modifier "${GHC_VERSION_MODIFIER:?GHC_VERSION_MODIFIER not set}" --isolation-dir ghci_tests "$target" -- \
+      -e ':set -v0' -e ':load '$SCRIPTDIR'/%GhciPluginTest.hs%' -e 'putStrLn testGreeting' \
+       | grep -q "plugin_ok"; then
+    echo "FAIL $target (expected 'plugin_ok')"
+    exit 1
+fi
+echo "PASS $target"
+
+# order_plugin: plugin_opts must arrive as ["alpha","beta","gamma"].
+# If GHCi loads the source successfully, the plugin received the right opts.
+target="buck2-haskell//tests/no-worker/plugins:ghci_order_plugin"
+if ! buck2 run --modifier "${GHC_VERSION_MODIFIER:?GHC_VERSION_MODIFIER not set}" --isolation-dir ghci_tests "$target" -- \
+       -e ':set -v0' -e ':load '$SCRIPTDIR'/%GhciOrderTest.hs%' -e 'putStrLn hello' \
+       | grep -q "order plugin ok"; then
+    echo "FAIL $target (expected 'order plugin ok')"
+    exit 1
+fi
+echo "PASS $target"
