@@ -1,0 +1,167 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_library",
+)
+load(":wrap_cxx.bzl", "wrap_cxx")
+
+native.cxx_library(
+    name = "clib_cxx",
+    srcs = ["cbits/clib.c"],
+    exported_headers = ["cbits/clib.h"],
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+)
+
+wrap_cxx(
+    name = "clib",
+    wrapped = ":clib_cxx",
+)
+
+haskell_library(
+    name = "libA",
+    srcs = [
+        "src/A.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+    ],
+    extra_libraries = [":clib"],
+    allow_worker = False,
+)
+
+haskell_library(
+    name = "libB",
+    srcs = [
+        "src/B.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libA",
+    ],
+    allow_worker = False,
+)
+
+haskell_binary(
+    name = "test1_bin",
+    srcs = ["app/test1.hs"],
+    strip_prefix = ["app"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libB",
+    ],
+    allow_worker = False,
+)
+
+sh_test(
+    name = "test1",
+    test = ":test1_bin"
+)
+
+#
+# transitive in-project C deps
+#
+
+native.cxx_library(
+    name = "clib_2_cxx",
+    srcs = ["cbits/clib_2.c"],
+    headers = ["cbits/clib_2.h"],
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+    exported_deps = [":clib_cxx"],
+)
+
+wrap_cxx(
+    name = "clib_2",
+    wrapped = ":clib_2_cxx",
+)
+
+haskell_library(
+    name = "libC",
+    srcs = [
+        "src/C.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+    ],
+    extra_libraries = [":clib_2"],
+    allow_worker = False,
+)
+
+haskell_library(
+    name = "libD",
+    srcs = [
+        "src/D.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libC",
+    ],
+    allow_worker = False,
+)
+
+haskell_binary(
+    name = "test2_bin",
+    srcs = ["app/test2.hs"],
+    strip_prefix = ["app"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libD",
+    ],
+    allow_worker = False,
+)
+
+sh_test(
+    name = "test2",
+    test = ":test2_bin",
+)
+
+#
+# TH module depends on in-project C code
+#
+
+haskell_library(
+    name = "libE",
+    srcs = [
+        "src/E.hs",
+        "src/TH.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        "//tests:template-haskell",
+        ":libA",
+    ],
+    # Without the worker, extra libs in TH are only supported in non-incremental
+    # builds
+    incremental = False,
+    allow_worker = False,
+)
+
+haskell_binary(
+    name = "test3_bin",
+    srcs = ["app/test3.hs"],
+    strip_prefix = ["app"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libE",
+    ],
+    allow_worker = False,
+)
+
+sh_test(
+    name = "test3",
+    test = ":test3_bin",
+)

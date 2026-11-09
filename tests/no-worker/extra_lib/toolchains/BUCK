@@ -1,0 +1,97 @@
+load(
+    "@buck2-haskell//:defs.bzl",
+    "haskell_binary",
+    "haskell_library",
+)
+
+#
+# regular module transitively depends on toolchain FFI
+#
+
+haskell_library(
+    name = "libA",
+    srcs = [
+        "src/A.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+    ],
+    extra_libraries = [
+        "@toolchains//:zlib",
+    ],
+    allow_worker = False,
+)
+
+haskell_library(
+    name = "libB",
+    srcs = [
+        "src/B.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libA",
+    ],
+    allow_worker = False,
+)
+
+haskell_binary(
+    name = "test1_bin",
+    srcs = ["app/test1.hs"],
+    strip_prefix = ["app"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libB",
+    ],
+    allow_worker = False,
+)
+
+sh_test(
+    name = "test1",
+    test = ":test1_bin"
+)
+
+#
+# TH module depends on toolchain FFI.
+#
+
+haskell_library(
+    name = "libC",
+    srcs = [
+        "src/C.hs",
+        "src/TH.hs",
+    ],
+    strip_prefix = ["src"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        "//tests:template-haskell",
+        ":libA",
+    ],
+    # Without the worker, extra libs in TH are only supported in non-incremental
+    # builds
+    incremental = False,
+    allow_worker = False,
+)
+
+
+haskell_binary(
+    name = "test2_bin",
+    srcs = ["app/test2.hs"],
+    strip_prefix = ["app"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//tests:base",
+        ":libC",
+    ],
+    allow_worker = False,
+)
+
+sh_test(
+    name = "test2",
+    test = ":test2_bin"
+)
