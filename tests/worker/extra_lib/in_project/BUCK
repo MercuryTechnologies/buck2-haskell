@@ -143,6 +143,10 @@ haskell_library(
         "//tests:template-haskell",
         ":libA",
     ],
+    # TH + extra libraries doesn't work well in GHC 9.14 yet.
+    # initLoaderState only loads extra libraries the first time it is called,
+    # and the units requiring the libraries might not be registered yet.
+    compatible_with = ["root//constraints/ghc:ghc_version[ghc910]"],
     _worker = "toolchains//:persistent_worker",
 )
 
@@ -155,10 +159,14 @@ haskell_binary(
         "//tests:base",
         ":libE",
     ],
+    # See comment on libE above.
+    compatible_with = ["root//constraints/ghc:ghc_version[ghc910]"],
     _worker = "toolchains//:persistent_worker",
 )
 
 sh_test(
     name = "test3",
+    # See comment on libE above.
+    compatible_with = ["root//constraints/ghc:ghc_version[ghc910]"],
     test = ":test3_bin",
 )
